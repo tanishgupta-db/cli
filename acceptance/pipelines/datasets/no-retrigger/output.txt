@@ -1,0 +1,26 @@
+
+>>> [CLI] pipelines deploy
+Uploading bundle files to /Workspace/Users/[USERNAME]/.bundle/test-pipeline-datasets-no-retrigger/default/files...
+Deploying resources...
+Updating deployment state...
+Deployment complete!
+View your pipeline my_pipeline here: [DATABRICKS_URL]/pipelines/[UUID]?w=[NUMID]
+
+>>> [CLI] pipelines datasets
+No readable dry-run found; triggering one (this starts a billed cluster). Press Ctrl-C to cancel.
+main.demo.source	MATERIALIZED_VIEW
+main.demo.filtered	MATERIALIZED_VIEW
+main.demo.aggregated	MATERIALIZED_VIEW
+
+>>> [CLI] pipelines datasets
+main.demo.source	MATERIALIZED_VIEW
+main.demo.filtered	MATERIALIZED_VIEW
+main.demo.aggregated	MATERIALIZED_VIEW
+
+=== only one dry-run was triggered across two reads{
+  "method": "POST",
+  "path": "/api/2.0/pipelines/[UUID]/updates",
+  "body": {
+    "validate_only": true
+  }
+}

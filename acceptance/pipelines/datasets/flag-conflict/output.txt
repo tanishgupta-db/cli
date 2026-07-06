@@ -1,0 +1,3 @@
+
+=== datasets rejects --force-dry-run and --no-dry-run together (before any bundle work)
+Error: --force-dry-run and --no-dry-run cannot be used together

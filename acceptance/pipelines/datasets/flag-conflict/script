@@ -1,0 +1,2 @@
+title "datasets rejects --force-dry-run and --no-dry-run together (before any bundle work)\n"
+musterr $CLI pipelines datasets --force-dry-run --no-dry-run

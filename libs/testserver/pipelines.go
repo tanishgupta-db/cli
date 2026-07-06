@@ -1,12 +1,79 @@
 package testserver
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/databricks/databricks-sdk-go/service/pipelines"
 )
+
+// PipelineUpdate is a stored pipeline update. StartUpdate seeds one in a terminal COMPLETED state;
+// tests seed failed or in-flight updates via SeedPipelineUpdate.
+type PipelineUpdate struct {
+	PipelineId   string
+	UpdateId     string
+	State        pipelines.UpdateInfoState
+	ValidateOnly bool
+	CreationTime int64
+}
+
+// DataflowGraph is the dry-run graph a pipeline exposes via the pipeline entities endpoints. It has
+// no create API, so tests seed it with SetPipelineGraph.
+type DataflowGraph struct {
+	Nodes       []DataflowGraphNode
+	Flows       []DataflowGraphFlow
+	Diagnostics []DataflowGraphDiagnostic
+}
+
+type DataflowGraphNode struct {
+	Dataset *DataflowGraphDataset `json:"dataset,omitempty"`
+	Sink    *DataflowGraphSink    `json:"sink,omitempty"`
+}
+
+type DataflowGraphDataset struct {
+	DatasetRef  string `json:"dataset_ref,omitempty"`
+	Name        string `json:"name,omitempty"`
+	FullName    string `json:"full_name,omitempty"`
+	DatasetType string `json:"dataset_type,omitempty"`
+}
+
+type DataflowGraphSink struct {
+	SinkRef   string `json:"sink_ref,omitempty"`
+	Name      string `json:"name,omitempty"`
+	TableName string `json:"table_name,omitempty"`
+}
+
+type DataflowGraphFlow struct {
+	InputNodeRefs []string `json:"input_node_refs,omitempty"`
+	OutputNodeRef string   `json:"output_node_ref,omitempty"`
+}
+
+type DataflowGraphDiagnostic struct {
+	Severity     string                          `json:"severity,omitempty"`
+	Code         string                          `json:"code,omitempty"`
+	Message      string                          `json:"message,omitempty"`
+	RelatedNodes []DataflowGraphDiagnosticNode   `json:"related_pipeline_nodes,omitempty"`
+	Details      *DataflowGraphDiagnosticDetails `json:"details,omitempty"`
+}
+
+type DataflowGraphDiagnosticDetails struct {
+	Exception *DataflowGraphDiagnosticException `json:"exception,omitempty"`
+}
+
+type DataflowGraphDiagnosticException struct {
+	ErrorClass string `json:"error_class,omitempty"`
+	SQLState   string `json:"sql_state,omitempty"`
+}
+
+type DataflowGraphDiagnosticNode struct {
+	DatasetName string `json:"dataset_name,omitempty"`
+	SinkName    string `json:"sink_name,omitempty"`
+	FlowName    string `json:"flow_name,omitempty"`
+}
 
 func (s *FakeWorkspace) PipelineGet(pipelineId string) Response {
 	defer s.LockUnlock()()
@@ -130,7 +197,7 @@ func (s *FakeWorkspace) PipelineUpdate(req Request, pipelineId string) Response 
 	return Response{}
 }
 
-func (s *FakeWorkspace) PipelineStartUpdate(pipelineId string) Response {
+func (s *FakeWorkspace) PipelineStartUpdate(req Request, pipelineId string) Response {
 	defer s.LockUnlock()()
 
 	_, exists := s.Pipelines[pipelineId]
@@ -141,8 +208,25 @@ func (s *FakeWorkspace) PipelineStartUpdate(pipelineId string) Response {
 		}
 	}
 
+	// The body is optional (a plain run omits validate_only), so ignore unmarshal errors.
+	var body pipelines.StartUpdate
+	_ = json.Unmarshal(req.Body, &body)
+
 	updateId := nextUUID()
-	s.PipelineUpdates[updateId] = true
+	// Default to a terminal COMPLETED state with an unset creation_time so existing get-update
+	// responses are unchanged; tests seed other states via SeedPipelineUpdate.
+	s.PipelineUpdates[updateId] = &PipelineUpdate{
+		PipelineId:   pipelineId,
+		UpdateId:     updateId,
+		State:        pipelines.UpdateInfoStateCompleted,
+		ValidateOnly: body.ValidateOnly,
+	}
+
+	// Seed a deterministic graph so acceptance tests, which drive the API but can't call
+	// SetPipelineGraph, read a non-empty one.
+	if s.PipelineGraphs[pipelineId] == nil {
+		s.PipelineGraphs[pipelineId] = defaultDataflowGraph()
+	}
 
 	return Response{
 		Body: pipelines.StartUpdateResponse{
@@ -181,7 +265,7 @@ func (s *FakeWorkspace) PipelineGetUpdate(pipelineId, updateId string) Response 
 	}
 
 	// Check if the update exists
-	_, updateExists := s.PipelineUpdates[updateId]
+	update, updateExists := s.PipelineUpdates[updateId]
 	if !updateExists {
 		return Response{
 			StatusCode: 404,
@@ -192,8 +276,10 @@ func (s *FakeWorkspace) PipelineGetUpdate(pipelineId, updateId string) Response 
 	return Response{
 		Body: pipelines.GetUpdateResponse{
 			Update: &pipelines.UpdateInfo{
-				UpdateId: updateId,
-				State:    pipelines.UpdateInfoStateCompleted,
+				UpdateId:     update.UpdateId,
+				State:        update.State,
+				ValidateOnly: update.ValidateOnly,
+				CreationTime: update.CreationTime,
 			},
 		},
 	}
@@ -216,4 +302,135 @@ func (s *FakeWorkspace) PipelineStop(pipelineId string) Response {
 			State:      pipelines.PipelineStateIdle,
 		},
 	}
+}
+
+// PipelineListUpdates lists a pipeline's updates, newest first, honoring max_results.
+func (s *FakeWorkspace) PipelineListUpdates(req Request, pipelineId string) Response {
+	defer s.LockUnlock()()
+
+	_, exists := s.Pipelines[pipelineId]
+	if !exists {
+		return Response{
+			StatusCode: 404,
+			Body:       map[string]string{"message": fmt.Sprintf("The specified pipeline %s was not found.", pipelineId)},
+		}
+	}
+
+	var updates []pipelines.UpdateInfo
+	for _, u := range s.PipelineUpdates {
+		if u.PipelineId != pipelineId {
+			continue
+		}
+		updates = append(updates, pipelines.UpdateInfo{
+			UpdateId:     u.UpdateId,
+			State:        u.State,
+			ValidateOnly: u.ValidateOnly,
+			CreationTime: u.CreationTime,
+		})
+	}
+	// Newest first: descending CreationTime, so flip the comparator operands.
+	slices.SortFunc(updates, func(a, b pipelines.UpdateInfo) int { return cmp.Compare(b.CreationTime, a.CreationTime) })
+
+	if raw := req.URL.Query().Get("max_results"); raw != "" {
+		if maxResults, err := strconv.Atoi(raw); err == nil && maxResults > 0 && maxResults < len(updates) {
+			updates = updates[:maxResults]
+		}
+	}
+
+	return Response{
+		Body: pipelines.ListUpdatesResponse{
+			Updates: updates,
+		},
+	}
+}
+
+// PipelineDataflowGraph returns one page of the pipeline's seeded dataflow graph for leaf (nodes,
+// flows, or diagnostics), driving the CLI's pagination loop.
+func (s *FakeWorkspace) PipelineDataflowGraph(req Request, pipelineId, leaf string) Response {
+	defer s.LockUnlock()()
+
+	_, exists := s.Pipelines[pipelineId]
+	if !exists {
+		return Response{
+			StatusCode: 404,
+			Body:       map[string]string{"message": fmt.Sprintf("The specified pipeline %s was not found.", pipelineId)},
+		}
+	}
+
+	graph := s.PipelineGraphs[pipelineId]
+	if graph == nil {
+		graph = &DataflowGraph{}
+	}
+
+	switch leaf {
+	case "nodes":
+		page, next := paginate(graph.Nodes, req)
+		return Response{Body: map[string]any{"nodes": page, "next_page_token": next}}
+	case "flows":
+		page, next := paginate(graph.Flows, req)
+		return Response{Body: map[string]any{"flows": page, "next_page_token": next}}
+	case "diagnostics":
+		page, next := paginate(graph.Diagnostics, req)
+		return Response{Body: map[string]any{"diagnostics": page, "next_page_token": next}}
+	default:
+		return Response{StatusCode: 404}
+	}
+}
+
+// paginate returns the page of items selected by the page_size and page_token query params, plus the
+// next-page token (empty once the slice is exhausted).
+func paginate[T any](items []T, req Request) ([]T, string) {
+	start := 0
+	if tok := req.URL.Query().Get("page_token"); tok != "" {
+		start, _ = strconv.Atoi(tok)
+	}
+	if start > len(items) {
+		start = len(items)
+	}
+	end := len(items)
+	if size, err := strconv.Atoi(req.URL.Query().Get("page_size")); err == nil && size > 0 && start+size < end {
+		end = start + size
+	}
+	next := ""
+	if end < len(items) {
+		next = strconv.Itoa(end)
+	}
+	return items[start:end], next
+}
+
+// defaultDataflowGraph is the deterministic canned graph (a source feeding two derived datasets) a
+// dry-run produces for acceptance tests, which drive the API but can't call SetPipelineGraph.
+func defaultDataflowGraph() *DataflowGraph {
+	ds := func(ref, name, fullName string) DataflowGraphNode {
+		return DataflowGraphNode{Dataset: &DataflowGraphDataset{
+			DatasetRef:  ref,
+			Name:        name,
+			FullName:    fullName,
+			DatasetType: "MATERIALIZED_VIEW",
+		}}
+	}
+	return &DataflowGraph{
+		Nodes: []DataflowGraphNode{
+			ds("n1", "source", "main.demo.source"),
+			ds("n2", "filtered", "main.demo.filtered"),
+			ds("n3", "aggregated", "main.demo.aggregated"),
+		},
+		Flows: []DataflowGraphFlow{
+			{InputNodeRefs: []string{"n1"}, OutputNodeRef: "n2"},
+			{InputNodeRefs: []string{"n1"}, OutputNodeRef: "n3"},
+		},
+	}
+}
+
+// SetPipelineGraph seeds the dataflow graph returned for a pipeline's dry-run.
+func (s *FakeWorkspace) SetPipelineGraph(pipelineId string, graph *DataflowGraph) {
+	defer s.LockUnlock()()
+	s.PipelineGraphs[pipelineId] = graph
+}
+
+// SeedPipelineUpdate stores a pre-existing update that StartUpdate would not otherwise produce (a
+// failed or in-flight one).
+func (s *FakeWorkspace) SeedPipelineUpdate(update *PipelineUpdate) {
+	defer s.LockUnlock()()
+	s.PipelineUpdates[update.UpdateId] = update
 }

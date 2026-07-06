@@ -388,7 +388,23 @@ func AddDefaultHandlers(server *Server) {
 	})
 
 	server.Handle("POST", "/api/2.0/pipelines/{pipeline_id}/updates", func(req Request) any {
-		return req.Workspace.PipelineStartUpdate(req.Vars["pipeline_id"])
+		return req.Workspace.PipelineStartUpdate(req, req.Vars["pipeline_id"])
+	})
+
+	server.Handle("GET", "/api/2.0/pipelines/{pipeline_id}/updates", func(req Request) any {
+		return req.Workspace.PipelineListUpdates(req, req.Vars["pipeline_id"])
+	})
+
+	server.Handle("GET", "/api/2.0/pipelines/{pipeline_id}/entities/nodes", func(req Request) any {
+		return req.Workspace.PipelineDataflowGraph(req, req.Vars["pipeline_id"], "nodes")
+	})
+
+	server.Handle("GET", "/api/2.0/pipelines/{pipeline_id}/entities/flows", func(req Request) any {
+		return req.Workspace.PipelineDataflowGraph(req, req.Vars["pipeline_id"], "flows")
+	})
+
+	server.Handle("GET", "/api/2.0/pipelines/{pipeline_id}/entities/diagnostics", func(req Request) any {
+		return req.Workspace.PipelineDataflowGraph(req, req.Vars["pipeline_id"], "diagnostics")
 	})
 
 	server.Handle("GET", "/api/2.0/pipelines/{pipeline_id}/events", func(req Request) any {

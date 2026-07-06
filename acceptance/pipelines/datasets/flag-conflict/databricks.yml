@@ -1,0 +1,10 @@
+bundle:
+  name: test-pipeline-datasets-flag-conflict
+
+resources:
+  pipelines:
+    my_pipeline:
+      name: test-pipeline-datasets-flag-conflict
+      libraries:
+        - file:
+            path: pipeline_file.py

@@ -355,6 +355,12 @@ func (s *Server) getWorkspaceForToken(token string) *FakeWorkspace {
 	return s.fakeWorkspaces[key]
 }
 
+// Workspace returns the fake workspace backing token, creating it if needed. Tests use it to seed
+// read-only state (e.g. a pipeline's dataflow graph) that has no create API.
+func (s *Server) Workspace(token string) *FakeWorkspace {
+	return s.getWorkspaceForToken(token)
+}
+
 func (s *Server) serve(w http.ResponseWriter, r *http.Request, handler HandlerFunc, vars map[string]string) {
 	token := getToken(r)
 
