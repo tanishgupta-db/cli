@@ -1,0 +1,131 @@
+package pipelines
+
+import (
+	"testing"
+
+	"github.com/databricks/cli/libs/flags"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func names(ds []dagDataset) []string {
+	out := make([]string, len(ds))
+	for i, d := range ds {
+		out[i] = d.FullName
+	}
+	return out
+}
+
+func datasetNode(ref, fullName, datasetType string) dagNode {
+	return dagNode{Dataset: &dagDataset{Ref: ref, FullName: fullName, DatasetType: datasetType}}
+}
+
+func TestComputeLineage(t *testing.T) {
+	// raw -> orders -> report ; orders -> audit
+	nodes := []dagNode{
+		datasetNode("r1", "main.s.raw", "STREAMING_TABLE"),
+		datasetNode("r2", "main.s.orders", "MATERIALIZED_VIEW"),
+		datasetNode("r3", "main.s.report", "MATERIALIZED_VIEW"),
+		datasetNode("r4", "main.s.audit", "MATERIALIZED_VIEW"),
+	}
+	flows := []dagFlow{
+		{InputNodeRefs: []string{"r1"}, OutputNodeRef: "r2"},
+		{InputNodeRefs: []string{"r2"}, OutputNodeRef: "r3"},
+		{InputNodeRefs: []string{"r2"}, OutputNodeRef: "r4"},
+	}
+
+	up, down, skipped, err := computeLineage("main.s.orders", nodes, flows)
+	require.NoError(t, err)
+	assert.Equal(t, 0, skipped)
+	assert.Equal(t, []string{"main.s.raw"}, names(up))
+	assert.Equal(t, []string{"main.s.audit", "main.s.report"}, names(down)) // sorted by full name
+}
+
+func TestComputeLineagePreservesDatasetName(t *testing.T) {
+	// The short Name (distinct from FullName) must survive into the resolved datasets so the JSON
+	// output is not blanked out. raw -> orders.
+	nodes := []dagNode{
+		{Dataset: &dagDataset{Ref: "r1", Name: "raw", FullName: "main.s.raw", DatasetType: "STREAMING_TABLE"}},
+		{Dataset: &dagDataset{Ref: "r2", Name: "orders", FullName: "main.s.orders", DatasetType: "MATERIALIZED_VIEW"}},
+	}
+	flows := []dagFlow{{InputNodeRefs: []string{"r1"}, OutputNodeRef: "r2"}}
+
+	up, _, _, err := computeLineage("main.s.orders", nodes, flows)
+	require.NoError(t, err)
+	require.Len(t, up, 1)
+	assert.Equal(t, "raw", up[0].Name)
+	assert.Equal(t, "main.s.raw", up[0].FullName)
+}
+
+func TestComputeLineageMultiInput(t *testing.T) {
+	// a, b -> joined (a flow with multiple input refs)
+	nodes := []dagNode{
+		datasetNode("ra", "main.s.a", "MATERIALIZED_VIEW"),
+		datasetNode("rb", "main.s.b", "MATERIALIZED_VIEW"),
+		datasetNode("rj", "main.s.joined", "MATERIALIZED_VIEW"),
+	}
+	flows := []dagFlow{{InputNodeRefs: []string{"ra", "rb"}, OutputNodeRef: "rj"}}
+
+	up, down, skipped, err := computeLineage("main.s.joined", nodes, flows)
+	require.NoError(t, err)
+	assert.Equal(t, 0, skipped)
+	assert.Equal(t, []string{"main.s.a", "main.s.b"}, names(up))
+	assert.Empty(t, down)
+}
+
+func TestComputeLineageIncludesSinkDownstream(t *testing.T) {
+	// orders -> a delta sink (table_name) and a non-delta sink (name). Both must appear downstream
+	// as SINK-typed entries rather than being dropped as unknown refs.
+	nodes := []dagNode{
+		datasetNode("r2", "main.s.orders", "MATERIALIZED_VIEW"),
+		{Sink: &dagSink{Ref: "s1", TableName: "main.s.orders_sink"}},
+		{Sink: &dagSink{Ref: "s2", Name: "kafka_out"}},
+	}
+	flows := []dagFlow{
+		{InputNodeRefs: []string{"r2"}, OutputNodeRef: "s1"},
+		{InputNodeRefs: []string{"r2"}, OutputNodeRef: "s2"},
+	}
+
+	up, down, skipped, err := computeLineage("main.s.orders", nodes, flows)
+	require.NoError(t, err)
+	assert.Equal(t, 0, skipped)
+	assert.Empty(t, up)
+	assert.Equal(t, []string{"kafka_out", "main.s.orders_sink"}, names(down)) // sorted by display name
+	for _, d := range down {
+		assert.Equal(t, sinkNodeType, d.DatasetType)
+	}
+}
+
+func TestComputeLineageTargetNotFound(t *testing.T) {
+	_, _, _, err := computeLineage("main.s.missing", nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found in pipeline graph")
+}
+
+func TestComputeLineageSkipsUnknownRefs(t *testing.T) {
+	// A flow feeds the target from a ref with no matching node (leaked / stale ref).
+	nodes := []dagNode{datasetNode("r2", "main.s.orders", "")}
+	flows := []dagFlow{{InputNodeRefs: []string{"ghost"}, OutputNodeRef: "r2"}}
+	up, _, skipped, err := computeLineage("main.s.orders", nodes, flows)
+	require.NoError(t, err)
+	assert.Empty(t, up)
+	assert.Equal(t, 1, skipped)
+}
+
+func TestRenderLineage(t *testing.T) {
+	up := []dagDataset{{FullName: "main.s.raw", DatasetType: "STREAMING_TABLE"}}
+	down := []dagDataset{{FullName: "main.s.report", DatasetType: "MATERIALIZED_VIEW"}}
+
+	t.Run("text", func(t *testing.T) {
+		cmd, buf := renderCmd(t, flags.OutputText)
+		require.NoError(t, renderLineage(cmd, "main.s.orders", up, down))
+		want := "Lineage for main.s.orders\n\nUpstream:\n  main.s.raw\tSTREAMING_TABLE\n\nDownstream:\n  main.s.report\tMATERIALIZED_VIEW\n"
+		assert.Equal(t, want, buf.String())
+	})
+	t.Run("text empty sides", func(t *testing.T) {
+		cmd, buf := renderCmd(t, flags.OutputText)
+		require.NoError(t, renderLineage(cmd, "main.s.orders", nil, nil))
+		assert.Contains(t, buf.String(), "Upstream:\n  (none)\n")
+		assert.Contains(t, buf.String(), "Downstream:\n  (none)\n")
+	})
+}

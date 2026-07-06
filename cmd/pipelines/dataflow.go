@@ -42,6 +42,10 @@ const (
 	// messages for dry-run triggers
 	triggerNotice      = "No readable dry-run found; triggering one (this starts a billed cluster). Press Ctrl-C to cancel."
 	forceTriggerNotice = "Triggering a fresh dry-run (this starts a billed cluster). Press Ctrl-C to cancel."
+
+	// sinkNodeType is the synthetic dataset_type used to render a sink (a terminal write target) in
+	// lineage output; the graph API models sinks as a distinct node kind with no dataset_type.
+	sinkNodeType = "SINK"
 )
 
 var (
@@ -73,6 +77,17 @@ type dagNode struct {
 
 type listNodesResponse struct {
 	Nodes         []dagNode `json:"nodes"`
+	NextPageToken string    `json:"next_page_token"`
+}
+
+// dagFlow is an edge by node ref: each input node feeds the output node.
+type dagFlow struct {
+	InputNodeRefs []string `json:"input_node_refs"`
+	OutputNodeRef string   `json:"output_node_ref"`
+}
+
+type listFlowsResponse struct {
+	Flows         []dagFlow `json:"flows"`
 	NextPageToken string    `json:"next_page_token"`
 }
 
@@ -405,6 +420,12 @@ func datasetsFromNodes(nodes []dagNode) []dagDataset {
 		}
 	}
 	return datasets
+}
+
+func fetchFlows(ctx context.Context, c *client.DatabricksClient, headers map[string]string, pipelineID, updateID string) ([]dagFlow, error) {
+	return fetchAllPages(ctx, c, headers, graphPath(pipelineID, "flows"), updateID,
+		func(r *listFlowsResponse) []dagFlow { return r.Flows },
+		func(r *listFlowsResponse) string { return r.NextPageToken })
 }
 
 func fetchDiagnostics(ctx context.Context, c *client.DatabricksClient, headers map[string]string, pipelineID, updateID string) ([]dagDiagnostic, error) {

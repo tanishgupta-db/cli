@@ -1,0 +1,46 @@
+
+>>> [CLI] pipelines deploy
+Uploading bundle files to /Workspace/Users/[USERNAME]/.bundle/test-pipeline-lineage/default/files...
+Deploying resources...
+Updating deployment state...
+Deployment complete!
+View your pipeline my_pipeline here: [DATABRICKS_URL]/pipelines/[UUID]?w=[NUMID]
+
+=== lineage: datasets downstream of the source
+>>> [CLI] pipelines lineage main.demo.source
+No readable dry-run found; triggering one (this starts a billed cluster). Press Ctrl-C to cancel.
+Lineage for main.demo.source
+
+Upstream:
+  (none)
+
+Downstream:
+  main.demo.aggregated	MATERIALIZED_VIEW
+  main.demo.filtered	MATERIALIZED_VIEW
+
+=== lineage: datasets upstream of a derived dataset
+>>> [CLI] pipelines lineage main.demo.filtered
+Lineage for main.demo.filtered
+
+Upstream:
+  main.demo.source	MATERIALIZED_VIEW
+
+Downstream:
+  (none)
+
+=== lineage as JSON
+>>> [CLI] pipelines lineage main.demo.filtered --output json
+{
+  "upstream": [
+    {
+      "dataset_ref": "n1",
+      "name": "source",
+      "full_name": "main.demo.source",
+      "dataset_type": "MATERIALIZED_VIEW"
+    }
+  ],
+  "downstream": []
+}
+
+=== lineage for an unknown table fails
+Error: table main.demo.missing not found in pipeline graph

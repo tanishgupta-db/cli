@@ -222,8 +222,30 @@ func TestDatasetsE2EActiveUpdateErrors(t *testing.T) {
 	assert.Contains(t, err.Error(), "an update is running")
 }
 
-func TestDatasetsE2ENoDryRunInProgressErrors(t *testing.T) {
-	ctx, cmd, _ := renderCmd(t, flags.OutputText)
+func TestLineageE2EIncludesSink(t *testing.T) {
+	ctx, _ := cmdio.NewTestContextWithStdout(t.Context())
+	server, w := newDataflowServer(t)
+	pipelineID := createDataflowPipeline(ctx, t, w, false)
+	// main.s.orders feeds a delta sink; the sink must appear downstream (exercises the sink arm of
+	// the node decode end-to-end), not be dropped as an unknown ref.
+	server.Workspace(e2eToken).SetPipelineGraph(pipelineID, &testserver.DataflowGraph{
+		Nodes: []testserver.DataflowGraphNode{
+			{Dataset: &testserver.DataflowGraphDataset{DatasetRef: "n1", FullName: "main.s.orders", DatasetType: "MATERIALIZED_VIEW"}},
+			{Sink: &testserver.DataflowGraphSink{SinkRef: "s1", TableName: "main.s.orders_sink"}},
+		},
+		Flows: []testserver.DataflowGraphFlow{
+			{InputNodeRefs: []string{"n1"}, OutputNodeRef: "s1"},
+		},
+	})
+
+	cmd, buf := renderCmd(t, flags.OutputText)
+	require.NoError(t, runLineage(ctx, cmd, w, pipelineID, "key", "main.s.orders", dagRunOpts{}))
+	out := buf.String()
+	assert.Contains(t, out, "Downstream:\n  main.s.orders_sink\tSINK")
+}
+
+func TestPreviewDatasetsE2ENoDryRunInProgressErrors(t *testing.T) {
+	ctx, _ := cmdio.NewTestContextWithStdout(t.Context())
 	server, w := newDataflowServer(t)
 	pipelineID := createDataflowPipeline(ctx, t, w, false)
 	// The newest validate-only update is still running; --no-dry-run must report it as in-progress,
