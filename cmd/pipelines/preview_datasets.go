@@ -18,25 +18,23 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func datasetsCommand() *cobra.Command {
+func previewDatasetsCommand() *cobra.Command {
 	var forceDryRun bool
 	var noDryRun bool
 	var timeout time.Duration
 	cmd := &cobra.Command{
-		Use:   "datasets [KEY]",
+		Use:   "preview-datasets [KEY]",
 		Short: "List the datasets a pipeline defines",
-		Long: `List the datasets a pipeline defines (its pipeline entities).
+		Long: `List the datasets a pipeline defines.
 
 By default this reads the latest dry-run's already-computed graph; if no dry-run exists yet it
-triggers one (which spins up a billed cluster) and waits for it. Use --force-dry-run to always
-trigger a fresh dry-run, or --no-dry-run to never trigger one (reporting the graph as unavailable
+triggers one and waits for it. Use --force-dry-run to always
+trigger a fresh dry-run, or --no-dry-run to never trigger one (reports the graph as unavailable
 when none exists).
 
 KEY is the pipeline's key in the bundle; it is optional if the bundle defines a
 single pipeline.`,
-		Args: root.MaximumNArgs(1),
-		// Hidden until the backing endpoint is generally available; it is served as
-		// PUBLIC_UNDOCUMENTED during the preview.
+		Args:   root.MaximumNArgs(1),
 		Hidden: true,
 	}
 	cmd.Flags().BoolVar(&forceDryRun, "force-dry-run", false, "Always trigger a fresh dry-run (spins up a billed cluster) instead of reading the latest.")
@@ -51,8 +49,6 @@ single pipeline.`,
 			return errors.New("--force-dry-run and --no-dry-run cannot be used together")
 		}
 
-		// Bound the whole command so a never-ready pipeline cannot hang the CLI. ProcessBundle reads
-		// the context off the command, so push the bounded one onto cmd before the state read too.
 		ctx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 		cmd.SetContext(ctx)
@@ -61,6 +57,7 @@ single pipeline.`,
 		if err != nil {
 			return err
 		}
+		suggestPipelineDeploy(ctx, cmd)
 		key, _, err := resolveRunArgument(ctx, b, args)
 		if err != nil {
 			return err
@@ -71,14 +68,13 @@ single pipeline.`,
 		}
 
 		w := b.WorkspaceClient(ctx)
-		return runDatasets(ctx, cmd, w, pipelineID, key, dagRunOpts{forceDryRun: forceDryRun, noDryRun: noDryRun})
+		return runPreviewDatasets(ctx, cmd, w, pipelineID, key, dagRunOpts{forceDryRun: forceDryRun, noDryRun: noDryRun})
 	}
 	return cmd
 }
 
-// runDatasets resolves the dry-run graph for the pipeline and renders its datasets. It is the
-// testable seam RunE calls once it has a workspace client and resolved pipeline id.
-func runDatasets(ctx context.Context, cmd *cobra.Command, w *databricks.WorkspaceClient, pipelineID, key string, opts dagRunOpts) error {
+// resolves the dry-run graph for the pipeline and renders its datasets
+func runPreviewDatasets(ctx context.Context, cmd *cobra.Command, w *databricks.WorkspaceClient, pipelineID, key string, opts dagRunOpts) error {
 	apiClient, err := client.New(w.Config)
 	if err != nil {
 		return fmt.Errorf("create API client: %w", err)
@@ -90,19 +86,23 @@ func runDatasets(ctx context.Context, cmd *cobra.Command, w *databricks.Workspac
 		return fmt.Errorf("datasets for %s: %w", key, err)
 	}
 	if state != pipelines.UpdateInfoStateCompleted {
-		return failureError(ctx, apiClient, headers, pipelineID, updateID)
+		return nonCompletedError(ctx, apiClient, headers, pipelineID, updateID, state)
 	}
 
 	datasets, err := fetchDatasets(ctx, apiClient, headers, pipelineID, updateID)
 	if err != nil {
 		return fmt.Errorf("fetch datasets for %s: %w", key, err)
 	}
-	return renderDatasets(cmd, datasets)
+	return renderPreviewDatasets(cmd, datasets)
 }
 
-func renderDatasets(cmd *cobra.Command, datasets []dagDataset) error {
+func renderPreviewDatasets(cmd *cobra.Command, datasets []dagDataset) error {
 	switch root.OutputType(cmd) {
 	case flags.OutputText:
+		if len(datasets) == 0 {
+			_, err := cmd.OutOrStdout().Write([]byte("(none)\n"))
+			return err
+		}
 		var sb strings.Builder
 		for _, d := range datasets {
 			fmt.Fprintf(&sb, "%s\t%s\n", d.FullName, d.DatasetType)

@@ -6,18 +6,27 @@ Updating deployment state...
 Deployment complete!
 View your pipeline my_pipeline here: [DATABRICKS_URL]/pipelines/[UUID]?w=[NUMID]
 
->>> [CLI] pipelines datasets
+>>> [CLI] pipelines preview-datasets
+Recommendation: This command runs the last deployed version of the code
+
+If you've made local changes, run 'databricks pipelines deploy' first to ensure they are included.
+
 No readable dry-run found; triggering one (this starts a billed cluster). Press Ctrl-C to cancel.
 main.demo.source	MATERIALIZED_VIEW
 main.demo.filtered	MATERIALIZED_VIEW
 main.demo.aggregated	MATERIALIZED_VIEW
 
->>> [CLI] pipelines datasets
+>>> [CLI] pipelines preview-datasets
+Recommendation: This command runs the last deployed version of the code
+
+If you've made local changes, run 'databricks pipelines deploy' first to ensure they are included.
+
 main.demo.source	MATERIALIZED_VIEW
 main.demo.filtered	MATERIALIZED_VIEW
 main.demo.aggregated	MATERIALIZED_VIEW
 
-=== only one dry-run was triggered across two reads{
+=== only one dry-run was triggered across two reads
+{
   "method": "POST",
   "path": "/api/2.0/pipelines/[UUID]/updates",
   "body": {

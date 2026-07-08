@@ -7,20 +7,32 @@ Deployment complete!
 View your pipeline my_pipeline here: [DATABRICKS_URL]/pipelines/[UUID]?w=[NUMID]
 
 === datasets: default triggers a dry-run, then lists the pipeline's datasets
->>> [CLI] pipelines datasets
+>>> [CLI] pipelines preview-datasets
+Recommendation: This command runs the last deployed version of the code
+
+If you've made local changes, run 'databricks pipelines deploy' first to ensure they are included.
+
 No readable dry-run found; triggering one (this starts a billed cluster). Press Ctrl-C to cancel.
 main.demo.source	MATERIALIZED_VIEW
 main.demo.filtered	MATERIALIZED_VIEW
 main.demo.aggregated	MATERIALIZED_VIEW
 
 === datasets with an explicit pipeline KEY (same result)
->>> [CLI] pipelines datasets my_pipeline
+>>> [CLI] pipelines preview-datasets my_pipeline
+Recommendation: This command runs the last deployed version of the code
+
+If you've made local changes, run 'databricks pipelines deploy' first to ensure they are included.
+
 main.demo.source	MATERIALIZED_VIEW
 main.demo.filtered	MATERIALIZED_VIEW
 main.demo.aggregated	MATERIALIZED_VIEW
 
 === datasets as JSON
->>> [CLI] pipelines datasets --output json
+>>> [CLI] pipelines preview-datasets --output json
+Recommendation: This command runs the last deployed version of the code
+
+If you've made local changes, run 'databricks pipelines deploy' first to ensure they are included.
+
 [
   {
     "dataset_ref": "n1",
@@ -43,7 +55,11 @@ main.demo.aggregated	MATERIALIZED_VIEW
 ]
 
 === datasets --no-dry-run reads the existing dry-run (no re-trigger)
->>> [CLI] pipelines datasets --no-dry-run
+>>> [CLI] pipelines preview-datasets --no-dry-run
+Recommendation: This command runs the last deployed version of the code
+
+If you've made local changes, run 'databricks pipelines deploy' first to ensure they are included.
+
 main.demo.source	MATERIALIZED_VIEW
 main.demo.filtered	MATERIALIZED_VIEW
 main.demo.aggregated	MATERIALIZED_VIEW

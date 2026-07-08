@@ -1,6 +1,7 @@
 package testserver
 
 import (
+	"net/url"
 	"testing"
 
 	"github.com/databricks/databricks-sdk-go/service/pipelines"
@@ -67,6 +68,25 @@ func TestPipelineGetUpdate_HandlesNonExistent(t *testing.T) {
 	response = workspace.PipelineGetUpdate(pipelineId, "non-existent-update")
 	assert.Equal(t, 404, response.StatusCode)
 	assert.Contains(t, response.Body.(map[string]string)["message"], "The specified update non-existent-update was not found")
+}
+
+func TestPipelineDataflowGraph_RejectsPageSizeAboveLeafMax(t *testing.T) {
+	workspace := NewFakeWorkspace("http://test", "dbapi123")
+	pipelineId := createTestPipeline(t, workspace)
+
+	graphReq := func(pageSize string) Request {
+		return Request{URL: &url.URL{RawQuery: url.Values{"page_size": {pageSize}}.Encode()}}
+	}
+
+	// Diagnostics max is 20; nodes/flows max is 50. The backend rejects (does not clamp) an
+	// oversized page_size with a 400, so the fake must too.
+	resp := workspace.PipelineDataflowGraph(graphReq("50"), pipelineId, "diagnostics")
+	assert.Equal(t, 400, resp.StatusCode)
+	assert.Equal(t, "INVALID_PARAMETER_VALUE", resp.Body.(map[string]string)["error_code"])
+
+	assert.Equal(t, 400, workspace.PipelineDataflowGraph(graphReq("51"), pipelineId, "nodes").StatusCode)
+	assert.Equal(t, 0, workspace.PipelineDataflowGraph(graphReq("20"), pipelineId, "diagnostics").StatusCode)
+	assert.Equal(t, 0, workspace.PipelineDataflowGraph(graphReq("50"), pipelineId, "nodes").StatusCode)
 }
 
 func TestPipelineStop_AfterUpdate(t *testing.T) {

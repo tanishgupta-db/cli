@@ -11,6 +11,10 @@ import (
 	"github.com/databricks/databricks-sdk-go/service/pipelines"
 )
 
+// dataflowGraphMaxPageSize is the per-leaf page-size cap the backend enforces: it rejects (does not
+// clamp) a larger page_size with a 400, so the fake does the same.
+var dataflowGraphMaxPageSize = map[string]int{"nodes": 50, "flows": 50, "diagnostics": 20}
+
 // PipelineUpdate is a stored pipeline update. StartUpdate seeds one in a terminal COMPLETED state;
 // tests seed failed or in-flight updates via SeedPipelineUpdate.
 type PipelineUpdate struct {
@@ -213,13 +217,14 @@ func (s *FakeWorkspace) PipelineStartUpdate(req Request, pipelineId string) Resp
 	_ = json.Unmarshal(req.Body, &body)
 
 	updateId := nextUUID()
-	// Default to a terminal COMPLETED state with an unset creation_time so existing get-update
-	// responses are unchanged; tests seed other states via SeedPipelineUpdate.
+	// Default to a terminal COMPLETED state; tests seed other states via SeedPipelineUpdate. Stamp
+	// creation_time so newestUpdate has a real ordering key rather than tying at zero.
 	s.PipelineUpdates[updateId] = &PipelineUpdate{
 		PipelineId:   pipelineId,
 		UpdateId:     updateId,
 		State:        pipelines.UpdateInfoStateCompleted,
 		ValidateOnly: body.ValidateOnly,
+		CreationTime: nowMilli(),
 	}
 
 	// Seed a deterministic graph so acceptance tests, which drive the API but can't call
@@ -354,6 +359,15 @@ func (s *FakeWorkspace) PipelineDataflowGraph(req Request, pipelineId, leaf stri
 		return Response{
 			StatusCode: 404,
 			Body:       map[string]string{"message": fmt.Sprintf("The specified pipeline %s was not found.", pipelineId)},
+		}
+	}
+
+	if maxPageSize, ok := dataflowGraphMaxPageSize[leaf]; ok {
+		if size, _ := strconv.Atoi(req.URL.Query().Get("page_size")); size > maxPageSize {
+			return Response{StatusCode: 400, Body: map[string]string{
+				"error_code": "INVALID_PARAMETER_VALUE",
+				"message":    fmt.Sprintf("Invalid page size. The page size must be between 1 and %d", maxPageSize),
+			}}
 		}
 	}
 

@@ -14,24 +14,24 @@ import (
 
 // fakeDeps is an in-memory updateDeps for testing resolveDryRun without a workspace.
 type fakeDeps struct {
-	continuous     bool
-	continuousErr  error
-	updates        []pipelines.UpdateInfo
-	updatesErr     error
-	triggerID      string
-	triggerErr     error
-	pollState      pipelines.UpdateInfoState
-	pollErr        error
-	continuousCals int
-	listCalls      int
-	triggered      bool
-	stopped        bool
+	continuous      bool
+	continuousErr   error
+	updates         []pipelines.UpdateInfo
+	updatesErr      error
+	triggerID       string
+	triggerErr      error
+	pollState       pipelines.UpdateInfoState
+	pollErr         error
+	continuousCalls int
+	listCalls       int
+	triggered       bool
+	stopped         bool
 }
 
 func (f *fakeDeps) deps() updateDeps {
 	return updateDeps{
 		continuous: func(ctx context.Context) (bool, error) {
-			f.continuousCals++
+			f.continuousCalls++
 			return f.continuous, f.continuousErr
 		},
 		listUpdates: func(ctx context.Context) ([]pipelines.UpdateInfo, error) {
@@ -103,6 +103,12 @@ func TestResolveDryRun(t *testing.T) {
 			fake:       fakeDeps{updates: []pipelines.UpdateInfo{upd("u3", pipelines.UpdateInfoStateRunning, false, 3)}},
 			wantErrIs:  errActiveUpdate,
 			wantErrSub: "an update is running",
+		},
+		{
+			name:      "default reads a completed dry-run even when a newer real run is active",
+			fake:      fakeDeps{updates: []pipelines.UpdateInfo{upd("u3", pipelines.UpdateInfoStateRunning, false, 3), upd("u2", completed, true, 2)}},
+			wantID:    "u2",
+			wantState: completed,
 		},
 		{
 			name:      "default rejects a continuous pipeline",
@@ -197,7 +203,7 @@ func TestResolveDryRunForceSkipsListButChecksContinuous(t *testing.T) {
 	_, _, err := resolveDryRun(ctx, f.deps(), dagRunOpts{forceDryRun: true})
 	require.NoError(t, err)
 	assert.Equal(t, 0, f.listCalls, "force must not list updates")
-	assert.Equal(t, 1, f.continuousCals, "force must still reject continuous pipelines")
+	assert.Equal(t, 1, f.continuousCalls, "force must still reject continuous pipelines")
 }
 
 func TestResolveDryRunNoDryRunSkipsContinuousCheck(t *testing.T) {
@@ -207,7 +213,7 @@ func TestResolveDryRunNoDryRunSkipsContinuousCheck(t *testing.T) {
 	id, _, err := resolveDryRun(ctx, f.deps(), dagRunOpts{noDryRun: true})
 	require.NoError(t, err)
 	assert.Equal(t, "u2", id)
-	assert.Equal(t, 0, f.continuousCals)
+	assert.Equal(t, 0, f.continuousCalls)
 }
 
 func TestResolveDryRunStopsTriggeredDryRunOnInterrupt(t *testing.T) {
@@ -300,12 +306,14 @@ func TestActiveUpdateError(t *testing.T) {
 func TestDiagnosticsSummary(t *testing.T) {
 	assert.Equal(t, "no error diagnostics returned", diagnosticsSummary(nil))
 
+	// Only ERROR-severity diagnostics are summarized; WARNING and INFORMATION are dropped.
 	diags := []dagDiagnostic{
 		{Severity: "WARNING", Message: "ignored warning"},
-		{Severity: "ERROR", Code: "TABLE_NOT_FOUND", Message: "missing table", RelatedNodes: []dagDiagnosticNode{{DatasetName: "main.s.t"}}},
+		{Severity: "INFORMATION", Message: "ignored insight"},
+		{Severity: severityError, Code: "TABLE_NOT_FOUND", Message: "missing table", RelatedNodes: []dagDiagnosticNode{{DatasetName: "main.s.t"}}},
 	}
-	diags[1].Range.Start.Line = 12
-	diags[1].DocumentURI = "file:///a.py"
+	diags[2].Range.Start.Line = 12
+	diags[2].DocumentURI = "file:///a.py"
 	// The zero-based line 12 renders as 1-based 13.
 	assert.Equal(t, "main.s.t: missing table (TABLE_NOT_FOUND) at file:///a.py:13", diagnosticsSummary(diags))
 }
@@ -327,6 +335,15 @@ func TestFormatDiagnosticExceptionDetail(t *testing.T) {
 	stateOnly.Details.Exception.SQLState = "42703"
 	assert.Equal(t, "42703", exceptionID(stateOnly))
 	assert.Empty(t, exceptionID(dagDiagnostic{}))
+}
+
+func TestNonCompletedErrorCanceled(t *testing.T) {
+	// A canceled dry-run has no diagnostics, so it must report as canceled (not "failed"). It
+	// short-circuits before any diagnostics fetch, so a nil client is fine here.
+	err := nonCompletedError(t.Context(), nil, nil, "pid", "uid", pipelines.UpdateInfoStateCanceled)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "canceled")
+	assert.NotContains(t, err.Error(), "failed")
 }
 
 func TestDiagnosticTarget(t *testing.T) {

@@ -22,21 +22,21 @@ import (
 )
 
 const (
-	// pollInterval is the gap between update-status polls while a triggered dry-run runs.
+	// gap between update-status polls while a triggered dry-run runs
 	pollInterval = time.Second
-	// graceDelay is the single re-poll wait when a COMPLETED update reads back an empty graph
-	// (entity aggregation can finalize just after the terminal commit).
+	// grace for completed updated but no results
 	graceDelay = 2 * time.Second
-	// graphPageSize is the page size for the entities list endpoints. It MUST be sent: the
-	// server treats an omitted or zero page_size as zero rows.
-	graphPageSize = 50
-	// listUpdatesPageSize bounds how far back we look for the latest dry-run. A dry-run older than
-	// this many updates is effectively stale, so default mode triggers a fresh one instead.
+	// page size per entity endpoint
+	nodesPageSize       = 20
+	flowsPageSize       = 20
+	diagnosticsPageSize = 20
+	// window for an existing dry-run
 	listUpdatesPageSize = 100
 
 	errCodeInvalidStateTransition = "INVALID_STATE_TRANSITION"
-	// triggerNotice is shown when default mode collapses a missing/failed dry-run into a fresh one;
-	// forceTriggerNotice when --force-dry-run always triggers. Both announce the billed cluster.
+
+	severityError = "ERROR"
+	// messages for dry-run triggers
 	triggerNotice      = "No readable dry-run found; triggering one (this starts a billed cluster). Press Ctrl-C to cancel."
 	forceTriggerNotice = "Triggering a fresh dry-run (this starts a billed cluster). Press Ctrl-C to cancel."
 )
@@ -48,8 +48,7 @@ var (
 	errDryRunInProgress = errors.New("the latest dry-run is still in progress")
 )
 
-// Response shapes for the entities list endpoints, hand-rolled because the endpoints are
-// PUBLIC_UNDOCUMENTED during the preview and not in the generated SDK yet.
+// hand-rolled response shapes
 type dagDataset struct {
 	Ref         string `json:"dataset_ref"`
 	Name        string `json:"name"`
@@ -57,15 +56,13 @@ type dagDataset struct {
 	DatasetType string `json:"dataset_type"`
 }
 
-// dagSink is a terminal write target (e.g. a Delta/Kafka sink). Unlike a dataset it has no
-// dataset_type; for delta sinks table_name is the target table, otherwise name identifies it.
 type dagSink struct {
 	Ref       string `json:"sink_ref"`
 	Name      string `json:"name"`
 	TableName string `json:"table_name"`
 }
 
-// dagNode is a graph vertex: exactly one of Dataset or Sink is set (mirrors the server's oneof).
+// graph vertex: either Dataset or Sink
 type dagNode struct {
 	Dataset *dagDataset `json:"dataset"`
 	Sink    *dagSink    `json:"sink"`
@@ -76,7 +73,7 @@ type listNodesResponse struct {
 	NextPageToken string    `json:"next_page_token"`
 }
 
-// dagDiagnosticNode is the node a diagnostic relates to; exactly one name field is set.
+// node a diagnostic relates to; exactly one name field is set
 type dagDiagnosticNode struct {
 	DatasetName string `json:"dataset_name"`
 	SinkName    string `json:"sink_name"`
@@ -95,8 +92,7 @@ type dagDiagnostic struct {
 	} `json:"range"`
 	RelatedNodes []dagDiagnosticNode `json:"related_pipeline_nodes"`
 	Details      struct {
-		// exception carries the structured JVM error (error_class, sql_state) behind an ERROR,
-		// which is often more diagnostic than the generic top-level message.
+		// structured JVM error (error_class, sql_state)
 		Exception struct {
 			ErrorClass string `json:"error_class"`
 			SQLState   string `json:"sql_state"`
@@ -109,14 +105,13 @@ type listDiagnosticsResponse struct {
 	NextPageToken string          `json:"next_page_token"`
 }
 
-// dagRunOpts are the dry-run mode flags shared by the pipeline-entities commands.
+// dry-run mode flags shared by the pipeline-entities commands
 type dagRunOpts struct {
 	forceDryRun bool
 	noDryRun    bool
 }
 
-// updateDeps are the workspace operations resolveDryRun orchestrates. Injecting them (rather than
-// calling w.Pipelines directly) keeps the resolution state machine unit-testable.
+// workspace operations resolveDryRun orchestrates
 type updateDeps struct {
 	continuous  func(ctx context.Context) (bool, error)
 	listUpdates func(ctx context.Context) ([]pipelines.UpdateInfo, error)
@@ -134,8 +129,8 @@ func isTerminal(s pipelines.UpdateInfoState) bool {
 	}
 }
 
-// newestUpdate returns the most recent update (by creation time) matching filter, if any.
-// A nil filter matches all updates.
+// most recent update (by creation time) matching filter, if any
+// nil filter matches all updates
 func newestUpdate(updates []pipelines.UpdateInfo, filter func(pipelines.UpdateInfo) bool) (pipelines.UpdateInfo, bool) {
 	var best pipelines.UpdateInfo
 	found := false
@@ -157,12 +152,10 @@ func activeUpdateError(u pipelines.UpdateInfo) error {
 	return fmt.Errorf("%w: an update is running (update %s); a dry-run cannot start while an update is active, retry once it completes", errActiveUpdate, u.UpdateId)
 }
 
-// resolveDryRun resolves the validate-only update whose graph a command should read, triggering a
-// fresh dry-run when needed. It returns the update id and terminal state (COMPLETED = fetch the
-// graph, FAILED/CANCELED = render diagnostics); continuous/active-update/no-dry-run return errors.
+// resolves validate-only update whose graph to read, triggers a fresh dry-run when needed
+// returns the update id and terminal state. continuous/active-update return errors.
 func resolveDryRun(ctx context.Context, d updateDeps, opts dagRunOpts) (id string, state pipelines.UpdateInfoState, err error) {
-	// If we triggered a dry-run but never confirmed a terminal state (err != nil, from Ctrl-C, the
-	// timeout, or an API error), it may still be running, so stop it to avoid leaking a billed cluster.
+	// stop a running dry-run if the command is interrupted/erorr etc.
 	signalCtx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 	triggered := false
@@ -173,8 +166,7 @@ func resolveDryRun(ctx context.Context, d updateDeps, opts dagRunOpts) (id strin
 	}()
 
 	triggerAndPoll := func(notice string) (string, pipelines.UpdateInfoState, error) {
-		// A continuous pipeline cannot be dry-run; check only on the trigger path so reading an
-		// existing dry-run does not pay for an extra getPipeline call.
+		// continuous pipeline cannot be dry-run
 		if continuous, err := d.continuous(signalCtx); err != nil {
 			return "", "", err
 		} else if continuous {
@@ -199,35 +191,33 @@ func resolveDryRun(ctx context.Context, d updateDeps, opts dagRunOpts) (id strin
 		return "", "", err
 	}
 
-	// The active-update guard allows at most one non-terminal update, and it is always the most
-	// recent; --no-dry-run never triggers, so an active update is not a blocker for it.
-	if !opts.noDryRun {
-		if u, ok := newestUpdate(updates, nil); ok && !isTerminal(u.State) {
-			return "", "", activeUpdateError(u)
+	latest, found := newestUpdate(updates, func(u pipelines.UpdateInfo) bool { return u.ValidateOnly })
+
+	if found && latest.State == pipelines.UpdateInfoStateCompleted {
+		return latest.UpdateId, latest.State, nil
+	}
+
+	if opts.noDryRun {
+		switch {
+		case found && !isTerminal(latest.State):
+			// in progress update
+			return "", "", fmt.Errorf("%w (update %s); re-run once it finishes", errDryRunInProgress, latest.UpdateId)
+		case found:
+			// failed/canceled dry-run: surface its diagnostics
+			return latest.UpdateId, latest.State, nil
+		default:
+			return "", "", errNoDryRun
 		}
 	}
 
-	latest, found := newestUpdate(updates, func(u pipelines.UpdateInfo) bool { return u.ValidateOnly })
-	switch {
-	case found && latest.State == pipelines.UpdateInfoStateCompleted:
-		return latest.UpdateId, latest.State, nil
-	case opts.noDryRun && found && !isTerminal(latest.State):
-		// The newest dry-run is still running; --no-dry-run never triggers, so report that rather
-		// than mislabeling an in-progress update as a failure.
-		return "", "", fmt.Errorf("%w (update %s); re-run once it finishes", errDryRunInProgress, latest.UpdateId)
-	case opts.noDryRun && found:
-		// A failed/canceled dry-run: surface its diagnostics rather than triggering one.
-		return latest.UpdateId, latest.State, nil
-	case opts.noDryRun:
-		return "", "", errNoDryRun
-	default:
-		// Default mode collapses a failed/canceled/absent dry-run into one fresh trigger.
-		return triggerAndPoll(triggerNotice)
+	// active update
+	if u, ok := newestUpdate(updates, nil); ok && !isTerminal(u.State) {
+		return "", "", activeUpdateError(u)
 	}
+	// trigger fresh dry-run
+	return triggerAndPoll(triggerNotice)
 }
 
-// mapTriggerError translates a StartUpdate rejection caused by a concurrently-active update into the
-// same targeted message the pre-trigger check produces; other errors pass through.
 func mapTriggerError(ctx context.Context, d updateDeps, err error) error {
 	apiErr, ok := errors.AsType[*apierr.APIError](err)
 	if !ok || apiErr.ErrorCode != errCodeInvalidStateTransition {
@@ -241,7 +231,7 @@ func mapTriggerError(ctx context.Context, d updateDeps, err error) error {
 	return err
 }
 
-// newUpdateDeps wires updateDeps to the workspace client for the given pipeline.
+// wires updateDeps to the workspace client for the given pipeline
 func newUpdateDeps(w *databricks.WorkspaceClient, pipelineID string) updateDeps {
 	return updateDeps{
 		continuous: func(ctx context.Context) (bool, error) {
@@ -278,7 +268,7 @@ func newUpdateDeps(w *databricks.WorkspaceClient, pipelineID string) updateDeps 
 	}
 }
 
-// pollUpdate polls the update until it reaches a terminal state or ctx ends.
+// polls the update until it reaches a terminal state or ctx ends
 func pollUpdate(ctx context.Context, w *databricks.WorkspaceClient, pipelineID, updateID string) (pipelines.UpdateInfoState, error) {
 	for {
 		resp, err := w.Pipelines.GetUpdateByPipelineIdAndUpdateId(ctx, pipelineID, updateID)
@@ -296,8 +286,7 @@ func pollUpdate(ctx context.Context, w *databricks.WorkspaceClient, pipelineID, 
 	}
 }
 
-// stopUpdate best-effort cancels a triggered dry-run so an interrupted command does not leave a
-// billed cluster running. It derives a fresh context since the command's is already cancelled.
+// best-effort cancels a triggered dry-run
 func stopUpdate(ctx context.Context, w *databricks.WorkspaceClient, pipelineID string) {
 	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
 	defer cancel()
@@ -307,15 +296,14 @@ func stopUpdate(ctx context.Context, w *databricks.WorkspaceClient, pipelineID s
 	}
 }
 
-// fetchAllPages issues GET path with page_size + page_token until the response has no next token,
-// accumulating items.
-func fetchAllPages[R, T any](ctx context.Context, c *client.DatabricksClient, headers map[string]string, path, updateID string, items func(*R) []T, next func(*R) string) ([]T, error) {
+// issues GET path with page_size + page_token until the response has no next token
+func fetchAllPages[R, T any](ctx context.Context, c *client.DatabricksClient, headers map[string]string, path, updateID string, pageSize int, items func(*R) []T, next func(*R) string) ([]T, error) {
 	var out []T
 	token := ""
 	for {
 		query := map[string]string{
 			"update_id": updateID,
-			"page_size": strconv.Itoa(graphPageSize),
+			"page_size": strconv.Itoa(pageSize),
 		}
 		if token != "" {
 			query["page_token"] = token
@@ -336,8 +324,7 @@ func graphPath(pipelineID, leaf string) string {
 	return fmt.Sprintf("/api/2.0/pipelines/%s/entities/%s", pipelineID, leaf)
 }
 
-// fetchDatasets returns the pipeline's datasets (sink nodes excluded), re-polling once if a
-// COMPLETED update reads back empty while aggregation finalizes.
+// returns the pipeline's datasets
 func fetchDatasets(ctx context.Context, c *client.DatabricksClient, headers map[string]string, pipelineID, updateID string) ([]dagDataset, error) {
 	nodes, err := fetchNodes(ctx, c, headers, pipelineID, updateID)
 	if err != nil {
@@ -359,14 +346,14 @@ func fetchDatasets(ctx context.Context, c *client.DatabricksClient, headers map[
 	return datasetsFromNodes(nodes), nil
 }
 
-// fetchNodes returns the pipeline's graph nodes (datasets and sinks) for the update.
+// returns the pipeline's graph nodes (datasets and sinks) for the update
 func fetchNodes(ctx context.Context, c *client.DatabricksClient, headers map[string]string, pipelineID, updateID string) ([]dagNode, error) {
-	return fetchAllPages(ctx, c, headers, graphPath(pipelineID, "nodes"), updateID,
+	return fetchAllPages(ctx, c, headers, graphPath(pipelineID, "nodes"), updateID, nodesPageSize,
 		func(r *listNodesResponse) []dagNode { return r.Nodes },
 		func(r *listNodesResponse) string { return r.NextPageToken })
 }
 
-// datasetsFromNodes keeps only the dataset nodes, dropping sinks.
+// keeps only the dataset nodes, dropping sinks
 func datasetsFromNodes(nodes []dagNode) []dagDataset {
 	datasets := make([]dagDataset, 0, len(nodes))
 	for _, n := range nodes {
@@ -378,14 +365,16 @@ func datasetsFromNodes(nodes []dagNode) []dagDataset {
 }
 
 func fetchDiagnostics(ctx context.Context, c *client.DatabricksClient, headers map[string]string, pipelineID, updateID string) ([]dagDiagnostic, error) {
-	return fetchAllPages(ctx, c, headers, graphPath(pipelineID, "diagnostics"), updateID,
+	return fetchAllPages(ctx, c, headers, graphPath(pipelineID, "diagnostics"), updateID, diagnosticsPageSize,
 		func(r *listDiagnosticsResponse) []dagDiagnostic { return r.Diagnostics },
 		func(r *listDiagnosticsResponse) string { return r.NextPageToken })
 }
 
-// failureError fetches a failed update's diagnostics and renders them as a single error. Used by
-// both commands when the resolved update is FAILED/CANCELED.
-func failureError(ctx context.Context, c *client.DatabricksClient, headers map[string]string, pipelineID, updateID string) error {
+// gets the diagnostics for a non-completed update
+func nonCompletedError(ctx context.Context, c *client.DatabricksClient, headers map[string]string, pipelineID, updateID string, state pipelines.UpdateInfoState) error {
+	if state == pipelines.UpdateInfoStateCanceled {
+		return errors.New("dry-run was canceled")
+	}
 	diagnostics, err := fetchDiagnostics(ctx, c, headers, pipelineID, updateID)
 	if err != nil {
 		return fmt.Errorf("dry-run failed; could not fetch diagnostics: %w", err)
@@ -393,11 +382,11 @@ func failureError(ctx context.Context, c *client.DatabricksClient, headers map[s
 	return fmt.Errorf("dry-run failed: %s", diagnosticsSummary(diagnostics))
 }
 
-// diagnosticsSummary joins the error-severity diagnostics into a single line.
+// joins the error-severity diagnostics into a single line
 func diagnosticsSummary(diagnostics []dagDiagnostic) string {
 	var parts []string
 	for _, d := range diagnostics {
-		if strings.TrimPrefix(d.Severity, "DIAGNOSTIC_SEVERITY_") != "ERROR" {
+		if d.Severity != severityError {
 			continue
 		}
 		parts = append(parts, formatDiagnostic(d))
@@ -413,22 +402,20 @@ func formatDiagnostic(d dagDiagnostic) string {
 	if target := diagnosticTarget(d.RelatedNodes); target != "" {
 		msg = target + ": " + msg
 	}
-	// Prefer the structured error identifiers (error_class [sql_state]) over the bare code: they
-	// pinpoint the failure where the top-level message is often generic.
+	// prefer the structured error identifiers (error_class [sql_state]) over the bare code
 	if id := exceptionID(d); id != "" {
 		msg = fmt.Sprintf("%s [%s]", msg, id)
 	} else if d.Code != "" {
 		msg = fmt.Sprintf("%s (%s)", msg, d.Code)
 	}
 	if d.DocumentURI != "" {
-		// The API reports zero-based lines; add 1 so it matches the user's 1-based editor.
+		// the API reports zero-based lines; add 1 so it matches the user's 1-based editor
 		msg = fmt.Sprintf("%s at %s:%d", msg, d.DocumentURI, d.Range.Start.Line+1)
 	}
 	return msg
 }
 
-// exceptionID joins the structured exception's error_class and sql_state (either may be absent) into
-// a single identifier, empty when the diagnostic carries no exception detail.
+// joins the structured exception's error_class and sql_state (either may be absent) into a single identifier
 func exceptionID(d dagDiagnostic) string {
 	ex := d.Details.Exception
 	switch {
@@ -457,7 +444,7 @@ func diagnosticTarget(nodes []dagDiagnosticNode) string {
 	return ""
 }
 
-// renderJSON writes v as indented JSON to the command's stdout with a trailing newline.
+// writes v as indented JSON to the command's stdout with a trailing newline
 func renderJSON(cmd *cobra.Command, v any) error {
 	out, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
@@ -467,7 +454,7 @@ func renderJSON(cmd *cobra.Command, v any) error {
 	return err
 }
 
-// orEmpty returns a non-nil slice so JSON output renders [] rather than null.
+// returns a non-nil slice so JSON output renders [] rather than null
 func orEmpty[T any](s []T) []T {
 	if s == nil {
 		return []T{}
