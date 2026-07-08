@@ -7,7 +7,11 @@ Deployment complete!
 View your pipeline my_pipeline here: [DATABRICKS_URL]/pipelines/[UUID]?w=[NUMID]
 
 === lineage: datasets downstream of the source
->>> [CLI] pipelines lineage main.demo.source
+>>> [CLI] pipelines preview-lineage main.demo.source
+Recommendation: This command runs the last deployed version of the code
+
+If you've made local changes, run 'databricks pipelines deploy' first to ensure they are included.
+
 No readable dry-run found; triggering one (this starts a billed cluster). Press Ctrl-C to cancel.
 Lineage for main.demo.source
 
@@ -19,7 +23,11 @@ Downstream:
   main.demo.filtered	MATERIALIZED_VIEW
 
 === lineage: datasets upstream of a derived dataset
->>> [CLI] pipelines lineage main.demo.filtered
+>>> [CLI] pipelines preview-lineage main.demo.filtered
+Recommendation: This command runs the last deployed version of the code
+
+If you've made local changes, run 'databricks pipelines deploy' first to ensure they are included.
+
 Lineage for main.demo.filtered
 
 Upstream:
@@ -29,7 +37,11 @@ Downstream:
   (none)
 
 === lineage as JSON
->>> [CLI] pipelines lineage main.demo.filtered --output json
+>>> [CLI] pipelines preview-lineage main.demo.filtered --output json
+Recommendation: This command runs the last deployed version of the code
+
+If you've made local changes, run 'databricks pipelines deploy' first to ensure they are included.
+
 {
   "upstream": [
     {
@@ -43,4 +55,8 @@ Downstream:
 }
 
 === lineage for an unknown table fails
+Recommendation: This command runs the last deployed version of the code
+
+If you've made local changes, run 'databricks pipelines deploy' first to ensure they are included.
+
 Error: table main.demo.missing not found in pipeline graph

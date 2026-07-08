@@ -42,10 +42,6 @@ const (
 	// messages for dry-run triggers
 	triggerNotice      = "No readable dry-run found; triggering one (this starts a billed cluster). Press Ctrl-C to cancel."
 	forceTriggerNotice = "Triggering a fresh dry-run (this starts a billed cluster). Press Ctrl-C to cancel."
-
-	// sinkNodeType is the synthetic dataset_type used to render a sink (a terminal write target) in
-	// lineage output; the graph API models sinks as a distinct node kind with no dataset_type.
-	sinkNodeType = "SINK"
 )
 
 var (
@@ -423,7 +419,7 @@ func datasetsFromNodes(nodes []dagNode) []dagDataset {
 }
 
 func fetchFlows(ctx context.Context, c *client.DatabricksClient, headers map[string]string, pipelineID, updateID string) ([]dagFlow, error) {
-	return fetchAllPages(ctx, c, headers, graphPath(pipelineID, "flows"), updateID,
+	return fetchAllPages(ctx, c, headers, graphPath(pipelineID, "flows"), updateID, flowsPageSize,
 		func(r *listFlowsResponse) []dagFlow { return r.Flows },
 		func(r *listFlowsResponse) string { return r.NextPageToken })
 }

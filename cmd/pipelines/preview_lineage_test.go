@@ -102,30 +102,59 @@ func TestComputeLineageTargetNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found in pipeline graph")
 }
 
-func TestComputeLineageSkipsUnknownRefs(t *testing.T) {
-	// A flow feeds the target from a ref with no matching node (leaked / stale ref).
+func TestComputeLineageCountsUnresolvedRefs(t *testing.T) {
+	// A flow feeds the target from a ref with no matching node (an external source the pipeline reads).
 	nodes := []dagNode{datasetNode("r2", "main.s.orders", "")}
 	flows := []dagFlow{{InputNodeRefs: []string{"ghost"}, OutputNodeRef: "r2"}}
-	up, _, skipped, err := computeLineage("main.s.orders", nodes, flows)
+	up, _, unresolved, err := computeLineage("main.s.orders", nodes, flows)
 	require.NoError(t, err)
 	assert.Empty(t, up)
-	assert.Equal(t, 1, skipped)
+	assert.Equal(t, 1, unresolved)
 }
 
-func TestRenderLineage(t *testing.T) {
+func TestComputeLineageCountsEachUnresolvedRefOnce(t *testing.T) {
+	// "ghost" is both an upstream input and a downstream output of the target; it must count once,
+	// and an empty output ref must not inflate the count.
+	nodes := []dagNode{datasetNode("r2", "main.s.orders", "")}
+	flows := []dagFlow{
+		{InputNodeRefs: []string{"ghost"}, OutputNodeRef: "r2"},
+		{InputNodeRefs: []string{"r2"}, OutputNodeRef: "ghost"},
+		{InputNodeRefs: []string{"r2"}, OutputNodeRef: ""},
+	}
+	_, _, unresolved, err := computeLineage("main.s.orders", nodes, flows)
+	require.NoError(t, err)
+	assert.Equal(t, 1, unresolved)
+}
+
+func TestRenderPreviewLineage(t *testing.T) {
 	up := []dagDataset{{FullName: "main.s.raw", DatasetType: "STREAMING_TABLE"}}
 	down := []dagDataset{{FullName: "main.s.report", DatasetType: "MATERIALIZED_VIEW"}}
 
 	t.Run("text", func(t *testing.T) {
 		cmd, buf := renderCmd(t, flags.OutputText)
-		require.NoError(t, renderLineage(cmd, "main.s.orders", up, down))
+		require.NoError(t, renderPreviewLineage(cmd, "main.s.orders", up, down, 0))
 		want := "Lineage for main.s.orders\n\nUpstream:\n  main.s.raw\tSTREAMING_TABLE\n\nDownstream:\n  main.s.report\tMATERIALIZED_VIEW\n"
 		assert.Equal(t, want, buf.String())
 	})
 	t.Run("text empty sides", func(t *testing.T) {
 		cmd, buf := renderCmd(t, flags.OutputText)
-		require.NoError(t, renderLineage(cmd, "main.s.orders", nil, nil))
+		require.NoError(t, renderPreviewLineage(cmd, "main.s.orders", nil, nil, 0))
 		assert.Contains(t, buf.String(), "Upstream:\n  (none)\n")
 		assert.Contains(t, buf.String(), "Downstream:\n  (none)\n")
+	})
+	t.Run("text notes unresolved refs", func(t *testing.T) {
+		cmd, buf := renderCmd(t, flags.OutputText)
+		require.NoError(t, renderPreviewLineage(cmd, "main.s.orders", up, nil, 2))
+		assert.Contains(t, buf.String(), "2 referenced node(s) are not defined in this pipeline")
+	})
+	t.Run("json includes unresolved refs", func(t *testing.T) {
+		cmd, buf := renderCmd(t, flags.OutputJSON)
+		require.NoError(t, renderPreviewLineage(cmd, "main.s.orders", up, nil, 3))
+		assert.Contains(t, buf.String(), `"unresolved_refs": 3`)
+	})
+	t.Run("json omits zero unresolved refs", func(t *testing.T) {
+		cmd, buf := renderCmd(t, flags.OutputJSON)
+		require.NoError(t, renderPreviewLineage(cmd, "main.s.orders", up, nil, 0))
+		assert.NotContains(t, buf.String(), "unresolved_refs")
 	})
 }

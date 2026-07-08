@@ -222,7 +222,7 @@ func TestDatasetsE2EActiveUpdateErrors(t *testing.T) {
 	assert.Contains(t, err.Error(), "an update is running")
 }
 
-func TestLineageE2EIncludesSink(t *testing.T) {
+func TestPreviewLineageE2EIncludesSink(t *testing.T) {
 	ctx, _ := cmdio.NewTestContextWithStdout(t.Context())
 	server, w := newDataflowServer(t)
 	pipelineID := createDataflowPipeline(ctx, t, w, false)
@@ -239,7 +239,7 @@ func TestLineageE2EIncludesSink(t *testing.T) {
 	})
 
 	cmd, buf := renderCmd(t, flags.OutputText)
-	require.NoError(t, runLineage(ctx, cmd, w, pipelineID, "key", "main.s.orders", dagRunOpts{}))
+	require.NoError(t, runPreviewLineage(ctx, cmd, w, pipelineID, "key", "main.s.orders", dagRunOpts{}))
 	out := buf.String()
 	assert.Contains(t, out, "Downstream:\n  main.s.orders_sink\tSINK")
 }
