@@ -41,20 +41,29 @@ func TestComputeLineage(t *testing.T) {
 	assert.Equal(t, []string{"main.s.audit", "main.s.report"}, names(down)) // sorted by full name
 }
 
-func TestComputeLineagePreservesDatasetName(t *testing.T) {
-	// The short Name (distinct from FullName) must survive into the resolved datasets so the JSON
-	// output is not blanked out. raw -> orders.
+func TestComputeLineageMatchesCleanName(t *testing.T) {
+	// target matches the clean name (not backticked full_name); both fields survive for JSON
 	nodes := []dagNode{
-		{Dataset: &dagDataset{Ref: "r1", Name: "raw", FullName: "main.s.raw", DatasetType: "STREAMING_TABLE"}},
-		{Dataset: &dagDataset{Ref: "r2", Name: "orders", FullName: "main.s.orders", DatasetType: "MATERIALIZED_VIEW"}},
+		{Dataset: &dagDataset{Ref: "r1", Name: "main.s.raw", FullName: "`main`.`s`.`raw`", DatasetType: "STREAMING_TABLE"}},
+		{Dataset: &dagDataset{Ref: "r2", Name: "main.s.orders", FullName: "`main`.`s`.`orders`", DatasetType: "MATERIALIZED_VIEW"}},
 	}
 	flows := []dagFlow{{InputNodeRefs: []string{"r1"}, OutputNodeRef: "r2"}}
 
 	up, _, _, err := computeLineage("main.s.orders", nodes, flows)
 	require.NoError(t, err)
 	require.Len(t, up, 1)
-	assert.Equal(t, "raw", up[0].Name)
-	assert.Equal(t, "main.s.raw", up[0].FullName)
+	assert.Equal(t, "main.s.raw", up[0].Name)
+	assert.Equal(t, "`main`.`s`.`raw`", up[0].FullName)
+}
+
+func TestComputeLineageRejectsEmptyTarget(t *testing.T) {
+	// a view has an empty full_name; keying on name keeps an empty arg from matching it
+	nodes := []dagNode{
+		{Dataset: &dagDataset{Ref: "v1", Name: "recent", FullName: "", DatasetType: "VIEW"}},
+	}
+	_, _, _, err := computeLineage("", nodes, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found in pipeline graph")
 }
 
 func TestComputeLineageMultiInput(t *testing.T) {
@@ -126,35 +135,35 @@ func TestComputeLineageCountsEachUnresolvedRefOnce(t *testing.T) {
 	assert.Equal(t, 1, unresolved)
 }
 
-func TestRenderPreviewLineage(t *testing.T) {
+func TestRenderLineage(t *testing.T) {
 	up := []dagDataset{{FullName: "main.s.raw", DatasetType: "STREAMING_TABLE"}}
 	down := []dagDataset{{FullName: "main.s.report", DatasetType: "MATERIALIZED_VIEW"}}
 
 	t.Run("text", func(t *testing.T) {
 		cmd, buf := renderCmd(t, flags.OutputText)
-		require.NoError(t, renderPreviewLineage(cmd, "main.s.orders", up, down, 0))
+		require.NoError(t, renderLineage(cmd, "main.s.orders", up, down, 0))
 		want := "Lineage for main.s.orders\n\nUpstream:\n  main.s.raw\tSTREAMING_TABLE\n\nDownstream:\n  main.s.report\tMATERIALIZED_VIEW\n"
 		assert.Equal(t, want, buf.String())
 	})
 	t.Run("text empty sides", func(t *testing.T) {
 		cmd, buf := renderCmd(t, flags.OutputText)
-		require.NoError(t, renderPreviewLineage(cmd, "main.s.orders", nil, nil, 0))
+		require.NoError(t, renderLineage(cmd, "main.s.orders", nil, nil, 0))
 		assert.Contains(t, buf.String(), "Upstream:\n  (none)\n")
 		assert.Contains(t, buf.String(), "Downstream:\n  (none)\n")
 	})
 	t.Run("text notes unresolved refs", func(t *testing.T) {
 		cmd, buf := renderCmd(t, flags.OutputText)
-		require.NoError(t, renderPreviewLineage(cmd, "main.s.orders", up, nil, 2))
+		require.NoError(t, renderLineage(cmd, "main.s.orders", up, nil, 2))
 		assert.Contains(t, buf.String(), "2 referenced node(s) are not defined in this pipeline")
 	})
 	t.Run("json includes unresolved refs", func(t *testing.T) {
 		cmd, buf := renderCmd(t, flags.OutputJSON)
-		require.NoError(t, renderPreviewLineage(cmd, "main.s.orders", up, nil, 3))
+		require.NoError(t, renderLineage(cmd, "main.s.orders", up, nil, 3))
 		assert.Contains(t, buf.String(), `"unresolved_refs": 3`)
 	})
 	t.Run("json omits zero unresolved refs", func(t *testing.T) {
 		cmd, buf := renderCmd(t, flags.OutputJSON)
-		require.NoError(t, renderPreviewLineage(cmd, "main.s.orders", up, nil, 0))
+		require.NoError(t, renderLineage(cmd, "main.s.orders", up, nil, 0))
 		assert.NotContains(t, buf.String(), "unresolved_refs")
 	})
 }

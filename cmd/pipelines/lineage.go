@@ -26,12 +26,12 @@ type lineageOutput struct {
 	UnresolvedRefs int `json:"unresolved_refs,omitempty"`
 }
 
-func previewLineageCommand() *cobra.Command {
+func lineageCommand() *cobra.Command {
 	var forceDryRun bool
 	var noDryRun bool
 	var timeout time.Duration
 	cmd := &cobra.Command{
-		Use:   "preview-lineage [KEY] TABLE",
+		Use:   "lineage [KEY] TABLE",
 		Short: "Show the upstream and downstream datasets for a table",
 		Long: `Show the datasets that feed TABLE (upstream) and that TABLE feeds (downstream)
 within a pipeline's entities.
@@ -88,14 +88,14 @@ single pipeline. TABLE is the dataset to inspect.`,
 		}
 
 		w := b.WorkspaceClient(ctx)
-		return runPreviewLineage(ctx, cmd, w, pipelineID, key, table, dagRunOpts{forceDryRun: forceDryRun, noDryRun: noDryRun})
+		return runLineage(ctx, cmd, w, pipelineID, key, table, dagRunOpts{forceDryRun: forceDryRun, noDryRun: noDryRun})
 	}
 	return cmd
 }
 
-// runPreviewLineage resolves the dry-run graph for the pipeline and renders TABLE's upstream and
+// runLineage resolves the dry-run graph for the pipeline and renders TABLE's upstream and
 // downstream datasets
-func runPreviewLineage(ctx context.Context, cmd *cobra.Command, w *databricks.WorkspaceClient, pipelineID, key, table string, opts dagRunOpts) error {
+func runLineage(ctx context.Context, cmd *cobra.Command, w *databricks.WorkspaceClient, pipelineID, key, table string, opts dagRunOpts) error {
 	apiClient, err := client.New(w.Config)
 	if err != nil {
 		return fmt.Errorf("create API client: %w", err)
@@ -123,23 +123,7 @@ func runPreviewLineage(ctx context.Context, cmd *cobra.Command, w *databricks.Wo
 	if err != nil {
 		return err
 	}
-	return renderPreviewLineage(cmd, table, upstream, downstream, unresolved)
-}
-
-// flattens a graph node into the dagDataset shape lineage renders
-func lineageNode(n dagNode) (dagDataset, bool) {
-	switch {
-	case n.Dataset != nil:
-		return *n.Dataset, true
-	case n.Sink != nil:
-		fullName := n.Sink.TableName
-		if fullName == "" {
-			fullName = n.Sink.Name
-		}
-		return dagDataset{Ref: n.Sink.Ref, FullName: fullName, DatasetType: sinkNodeType}, true
-	default:
-		return dagDataset{}, false
-	}
+	return renderLineage(cmd, table, upstream, downstream, unresolved)
 }
 
 // resolves the upstream and downstream nodes of table from the node and flow lists
@@ -147,12 +131,15 @@ func computeLineage(table string, nodes []dagNode, flows []dagFlow) (upstream, d
 	refToDataset := make(map[string]dagDataset, len(nodes))
 	nameToRef := make(map[string]string, len(nodes))
 	for _, n := range nodes {
-		ds, ok := lineageNode(n)
+		ds, ok := nodeToDataset(n)
 		if !ok {
 			continue
 		}
 		refToDataset[ds.Ref] = ds
-		nameToRef[ds.FullName] = ds.Ref
+		// key on display name so the clean identifier matches; skip empty names (e.g. an empty arg)
+		if name := displayName(ds); name != "" {
+			nameToRef[name] = ds.Ref
+		}
 	}
 
 	targetRef, ok := nameToRef[table]
@@ -194,7 +181,7 @@ func computeLineage(table string, nodes []dagNode, flows []dagFlow) (upstream, d
 	return upstream, downstream, len(unresolvedRefs), nil
 }
 
-// maps the resolvable node refs to datasets, sorted by full name
+// maps the resolvable node refs to datasets, sorted by display name to match render order
 func resolveRefs(refs map[string]struct{}, refToDataset map[string]dagDataset) []dagDataset {
 	out := make([]dagDataset, 0, len(refs))
 	for ref := range refs {
@@ -202,11 +189,11 @@ func resolveRefs(refs map[string]struct{}, refToDataset map[string]dagDataset) [
 			out = append(out, d)
 		}
 	}
-	slices.SortFunc(out, func(a, b dagDataset) int { return strings.Compare(a.FullName, b.FullName) })
+	slices.SortFunc(out, func(a, b dagDataset) int { return strings.Compare(displayName(a), displayName(b)) })
 	return out
 }
 
-func renderPreviewLineage(cmd *cobra.Command, table string, upstream, downstream []dagDataset, unresolved int) error {
+func renderLineage(cmd *cobra.Command, table string, upstream, downstream []dagDataset, unresolved int) error {
 	switch root.OutputType(cmd) {
 	case flags.OutputText:
 		var sb strings.Builder
@@ -232,6 +219,6 @@ func writeDatasetLines(sb *strings.Builder, datasets []dagDataset) {
 		return
 	}
 	for _, d := range datasets {
-		fmt.Fprintf(sb, "  %s\t%s\n", d.FullName, d.DatasetType)
+		fmt.Fprintf(sb, "  %s\t%s\n", displayName(d), d.DatasetType)
 	}
 }

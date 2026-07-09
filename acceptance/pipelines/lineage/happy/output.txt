@@ -7,7 +7,7 @@ Deployment complete!
 View your pipeline my_pipeline here: [DATABRICKS_URL]/pipelines/[UUID]?w=[NUMID]
 
 === lineage: datasets downstream of the source
->>> [CLI] pipelines preview-lineage main.demo.source
+>>> [CLI] pipelines lineage main.demo.source
 Recommendation: This command runs the last deployed version of the code
 
 If you've made local changes, run 'databricks pipelines deploy' first to ensure they are included.
@@ -23,7 +23,7 @@ Downstream:
   main.demo.filtered	MATERIALIZED_VIEW
 
 === lineage: datasets upstream of a derived dataset
->>> [CLI] pipelines preview-lineage main.demo.filtered
+>>> [CLI] pipelines lineage main.demo.filtered
 Recommendation: This command runs the last deployed version of the code
 
 If you've made local changes, run 'databricks pipelines deploy' first to ensure they are included.
@@ -34,10 +34,10 @@ Upstream:
   main.demo.source	MATERIALIZED_VIEW
 
 Downstream:
-  (none)
+  recent	VIEW
 
 === lineage as JSON
->>> [CLI] pipelines preview-lineage main.demo.filtered --output json
+>>> [CLI] pipelines lineage main.demo.filtered --output json
 Recommendation: This command runs the last deployed version of the code
 
 If you've made local changes, run 'databricks pipelines deploy' first to ensure they are included.
@@ -46,12 +46,19 @@ If you've made local changes, run 'databricks pipelines deploy' first to ensure 
   "upstream": [
     {
       "dataset_ref": "n1",
-      "name": "source",
-      "full_name": "main.demo.source",
+      "name": "main.demo.source",
+      "full_name": "`main`.`demo`.`source`",
       "dataset_type": "MATERIALIZED_VIEW"
     }
   ],
-  "downstream": []
+  "downstream": [
+    {
+      "dataset_ref": "n4",
+      "name": "recent",
+      "full_name": "",
+      "dataset_type": "VIEW"
+    }
+  ]
 }
 
 === lineage for an unknown table fails
