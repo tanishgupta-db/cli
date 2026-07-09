@@ -1,13 +1,13 @@
 trace $CLI pipelines deploy
 
 title "datasets: default triggers a dry-run, then lists the pipeline's datasets"
-trace $CLI pipelines preview-datasets
+trace $CLI pipelines datasets
 
 title "datasets with an explicit pipeline KEY (same result)"
-trace $CLI pipelines preview-datasets my_pipeline
+trace $CLI pipelines datasets my_pipeline
 
 title "datasets as JSON"
-trace $CLI pipelines preview-datasets --output json
+trace $CLI pipelines datasets --output json
 
 title "datasets --no-dry-run reads the existing dry-run (no re-trigger)"
-trace $CLI pipelines preview-datasets --no-dry-run
+trace $CLI pipelines datasets --no-dry-run

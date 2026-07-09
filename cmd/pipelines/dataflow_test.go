@@ -116,6 +116,12 @@ func TestResolveDryRun(t *testing.T) {
 			wantErrIs: errContinuous,
 		},
 		{
+			// Continuous pipelines cannot be dry-run --> we don't serve them
+			name:      "default rejects a continuous pipeline with a running update",
+			fake:      fakeDeps{continuous: true, updates: []pipelines.UpdateInfo{upd("u3", pipelines.UpdateInfoStateRunning, false, 3)}},
+			wantErrIs: errContinuous,
+		},
+		{
 			name:      "no-dry-run reads the latest completed dry-run",
 			opts:      dagRunOpts{noDryRun: true},
 			fake:      fakeDeps{updates: []pipelines.UpdateInfo{upd("u2", completed, true, 2)}},
@@ -141,6 +147,13 @@ func TestResolveDryRun(t *testing.T) {
 			opts:      dagRunOpts{noDryRun: true},
 			fake:      fakeDeps{updates: []pipelines.UpdateInfo{upd("u1", completed, false, 1)}},
 			wantErrIs: errNoDryRun,
+		},
+		{
+			// Continuous pipelines cannot be dry-run --> we don't serve them
+			name:      "no-dry-run rejects a continuous pipeline",
+			opts:      dagRunOpts{noDryRun: true},
+			fake:      fakeDeps{continuous: true, updates: []pipelines.UpdateInfo{upd("u3", pipelines.UpdateInfoStateRunning, true, 3)}},
+			wantErrIs: errContinuous,
 		},
 		{
 			name:      "no-dry-run is exempt from the active-update check",
@@ -206,14 +219,14 @@ func TestResolveDryRunForceSkipsListButChecksContinuous(t *testing.T) {
 	assert.Equal(t, 1, f.continuousCalls, "force must still reject continuous pipelines")
 }
 
-func TestResolveDryRunNoDryRunSkipsContinuousCheck(t *testing.T) {
+func TestResolveDryRunChecksContinuousBeforeListing(t *testing.T) {
 	ctx, _ := cmdio.NewTestContextWithStdout(t.Context())
-	// continuous is true but must be ignored: --no-dry-run never triggers.
+	// Continuous pipelines cannot be dry-run --> we don't serve them
 	f := fakeDeps{continuous: true, updates: []pipelines.UpdateInfo{upd("u2", pipelines.UpdateInfoStateCompleted, true, 2)}}
-	id, _, err := resolveDryRun(ctx, f.deps(), dagRunOpts{noDryRun: true})
-	require.NoError(t, err)
-	assert.Equal(t, "u2", id)
-	assert.Equal(t, 0, f.continuousCalls)
+	_, _, err := resolveDryRun(ctx, f.deps(), dagRunOpts{noDryRun: true})
+	require.ErrorIs(t, err, errContinuous)
+	assert.Equal(t, 1, f.continuousCalls)
+	assert.Equal(t, 0, f.listCalls, "continuous pipelines must be rejected before listing updates")
 }
 
 func TestResolveDryRunStopsTriggeredDryRunOnInterrupt(t *testing.T) {

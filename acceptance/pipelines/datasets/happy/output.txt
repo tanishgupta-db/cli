@@ -7,7 +7,7 @@ Deployment complete!
 View your pipeline my_pipeline here: [DATABRICKS_URL]/pipelines/[UUID]?w=[NUMID]
 
 === datasets: default triggers a dry-run, then lists the pipeline's datasets
->>> [CLI] pipelines preview-datasets
+>>> [CLI] pipelines datasets
 Recommendation: This command runs the last deployed version of the code
 
 If you've made local changes, run 'databricks pipelines deploy' first to ensure they are included.
@@ -16,9 +16,11 @@ No readable dry-run found; triggering one (this starts a billed cluster). Press 
 main.demo.source	MATERIALIZED_VIEW
 main.demo.filtered	MATERIALIZED_VIEW
 main.demo.aggregated	MATERIALIZED_VIEW
+recent	VIEW
+main.demo.archive	SINK
 
 === datasets with an explicit pipeline KEY (same result)
->>> [CLI] pipelines preview-datasets my_pipeline
+>>> [CLI] pipelines datasets my_pipeline
 Recommendation: This command runs the last deployed version of the code
 
 If you've made local changes, run 'databricks pipelines deploy' first to ensure they are included.
@@ -26,9 +28,11 @@ If you've made local changes, run 'databricks pipelines deploy' first to ensure 
 main.demo.source	MATERIALIZED_VIEW
 main.demo.filtered	MATERIALIZED_VIEW
 main.demo.aggregated	MATERIALIZED_VIEW
+recent	VIEW
+main.demo.archive	SINK
 
 === datasets as JSON
->>> [CLI] pipelines preview-datasets --output json
+>>> [CLI] pipelines datasets --output json
 Recommendation: This command runs the last deployed version of the code
 
 If you've made local changes, run 'databricks pipelines deploy' first to ensure they are included.
@@ -36,26 +40,38 @@ If you've made local changes, run 'databricks pipelines deploy' first to ensure 
 [
   {
     "dataset_ref": "n1",
-    "name": "source",
-    "full_name": "main.demo.source",
+    "name": "main.demo.source",
+    "full_name": "`main`.`demo`.`source`",
     "dataset_type": "MATERIALIZED_VIEW"
   },
   {
     "dataset_ref": "n2",
-    "name": "filtered",
-    "full_name": "main.demo.filtered",
+    "name": "main.demo.filtered",
+    "full_name": "`main`.`demo`.`filtered`",
     "dataset_type": "MATERIALIZED_VIEW"
   },
   {
     "dataset_ref": "n3",
-    "name": "aggregated",
-    "full_name": "main.demo.aggregated",
+    "name": "main.demo.aggregated",
+    "full_name": "`main`.`demo`.`aggregated`",
     "dataset_type": "MATERIALIZED_VIEW"
+  },
+  {
+    "dataset_ref": "n4",
+    "name": "recent",
+    "full_name": "",
+    "dataset_type": "VIEW"
+  },
+  {
+    "dataset_ref": "s1",
+    "name": "",
+    "full_name": "main.demo.archive",
+    "dataset_type": "SINK"
   }
 ]
 
 === datasets --no-dry-run reads the existing dry-run (no re-trigger)
->>> [CLI] pipelines preview-datasets --no-dry-run
+>>> [CLI] pipelines datasets --no-dry-run
 Recommendation: This command runs the last deployed version of the code
 
 If you've made local changes, run 'databricks pipelines deploy' first to ensure they are included.
@@ -63,3 +79,5 @@ If you've made local changes, run 'databricks pipelines deploy' first to ensure 
 main.demo.source	MATERIALIZED_VIEW
 main.demo.filtered	MATERIALIZED_VIEW
 main.demo.aggregated	MATERIALIZED_VIEW
+recent	VIEW
+main.demo.archive	SINK

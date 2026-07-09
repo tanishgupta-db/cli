@@ -412,26 +412,32 @@ func paginate[T any](items []T, req Request) ([]T, string) {
 	return items[start:end], next
 }
 
-// defaultDataflowGraph is the deterministic canned graph (a source feeding two derived datasets) a
-// dry-run produces for acceptance tests, which drive the API but can't call SetPipelineGraph.
+// defaultDataflowGraph is the deterministic canned graph a dry-run produces for acceptance tests,
+// which drive the API but can't call SetPipelineGraph. It mirrors the real backend's identifier
+// shapes: a dataset's name is unquoted-dotted while its full_name is per-segment backtick-quoted; a
+// view has a populated name but empty full_name; a sink carries its identifier in table_name.
 func defaultDataflowGraph() *DataflowGraph {
-	ds := func(ref, name, fullName string) DataflowGraphNode {
+	ds := func(ref, name, fullName, datasetType string) DataflowGraphNode {
 		return DataflowGraphNode{Dataset: &DataflowGraphDataset{
 			DatasetRef:  ref,
 			Name:        name,
 			FullName:    fullName,
-			DatasetType: "MATERIALIZED_VIEW",
+			DatasetType: datasetType,
 		}}
 	}
 	return &DataflowGraph{
 		Nodes: []DataflowGraphNode{
-			ds("n1", "source", "main.demo.source"),
-			ds("n2", "filtered", "main.demo.filtered"),
-			ds("n3", "aggregated", "main.demo.aggregated"),
+			ds("n1", "main.demo.source", "`main`.`demo`.`source`", "MATERIALIZED_VIEW"),
+			ds("n2", "main.demo.filtered", "`main`.`demo`.`filtered`", "MATERIALIZED_VIEW"),
+			ds("n3", "main.demo.aggregated", "`main`.`demo`.`aggregated`", "MATERIALIZED_VIEW"),
+			ds("n4", "recent", "", "VIEW"),
+			{Sink: &DataflowGraphSink{SinkRef: "s1", TableName: "main.demo.archive"}},
 		},
 		Flows: []DataflowGraphFlow{
 			{InputNodeRefs: []string{"n1"}, OutputNodeRef: "n2"},
 			{InputNodeRefs: []string{"n1"}, OutputNodeRef: "n3"},
+			{InputNodeRefs: []string{"n2"}, OutputNodeRef: "n4"},
+			{InputNodeRefs: []string{"n3"}, OutputNodeRef: "s1"},
 		},
 	}
 }

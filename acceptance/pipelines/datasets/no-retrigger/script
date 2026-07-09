@@ -3,8 +3,8 @@ rm out.requests.txt
 
 # First call triggers a dry-run (POST .../updates); the second reuses it. print_requests.py
 # excludes GETs, so the recorded POSTs show exactly one StartUpdate across both reads.
-trace $CLI pipelines preview-datasets
-trace $CLI pipelines preview-datasets
+trace $CLI pipelines datasets
+trace $CLI pipelines datasets
 
 title "only one dry-run was triggered across two reads\n"
 print_requests.py //pipelines --sort

@@ -1,4 +1,4 @@
 trace $CLI pipelines deploy
 
 title "datasets --no-dry-run with no prior dry-run reports the graph as unavailable\n"
-musterr $CLI pipelines preview-datasets --no-dry-run
+musterr $CLI pipelines datasets --no-dry-run

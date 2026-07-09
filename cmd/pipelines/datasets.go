@@ -18,12 +18,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func previewDatasetsCommand() *cobra.Command {
+func datasetsCommand() *cobra.Command {
 	var forceDryRun bool
 	var noDryRun bool
 	var timeout time.Duration
 	cmd := &cobra.Command{
-		Use:   "preview-datasets [KEY]",
+		Use:   "datasets [KEY]",
 		Short: "List the datasets a pipeline defines",
 		Long: `List the datasets a pipeline defines.
 
@@ -68,13 +68,13 @@ single pipeline.`,
 		}
 
 		w := b.WorkspaceClient(ctx)
-		return runPreviewDatasets(ctx, cmd, w, pipelineID, key, dagRunOpts{forceDryRun: forceDryRun, noDryRun: noDryRun})
+		return runDatasets(ctx, cmd, w, pipelineID, key, dagRunOpts{forceDryRun: forceDryRun, noDryRun: noDryRun})
 	}
 	return cmd
 }
 
 // resolves the dry-run graph for the pipeline and renders its datasets
-func runPreviewDatasets(ctx context.Context, cmd *cobra.Command, w *databricks.WorkspaceClient, pipelineID, key string, opts dagRunOpts) error {
+func runDatasets(ctx context.Context, cmd *cobra.Command, w *databricks.WorkspaceClient, pipelineID, key string, opts dagRunOpts) error {
 	apiClient, err := client.New(w.Config)
 	if err != nil {
 		return fmt.Errorf("create API client: %w", err)
@@ -93,10 +93,10 @@ func runPreviewDatasets(ctx context.Context, cmd *cobra.Command, w *databricks.W
 	if err != nil {
 		return fmt.Errorf("fetch datasets for %s: %w", key, err)
 	}
-	return renderPreviewDatasets(cmd, datasets)
+	return renderDatasets(cmd, datasets)
 }
 
-func renderPreviewDatasets(cmd *cobra.Command, datasets []dagDataset) error {
+func renderDatasets(cmd *cobra.Command, datasets []dagDataset) error {
 	switch root.OutputType(cmd) {
 	case flags.OutputText:
 		if len(datasets) == 0 {
@@ -105,7 +105,7 @@ func renderPreviewDatasets(cmd *cobra.Command, datasets []dagDataset) error {
 		}
 		var sb strings.Builder
 		for _, d := range datasets {
-			fmt.Fprintf(&sb, "%s\t%s\n", d.FullName, d.DatasetType)
+			fmt.Fprintf(&sb, "%s\t%s\n", displayName(d), d.DatasetType)
 		}
 		_, err := cmd.OutOrStdout().Write([]byte(sb.String()))
 		return err

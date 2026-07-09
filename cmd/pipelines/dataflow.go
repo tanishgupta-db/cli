@@ -36,6 +36,8 @@ const (
 	errCodeInvalidStateTransition = "INVALID_STATE_TRANSITION"
 
 	severityError = "ERROR"
+	// dataset_type for a flattened sink
+	sinkNodeType = "SINK"
 	// messages for dry-run triggers
 	triggerNotice      = "No readable dry-run found; triggering one (this starts a billed cluster). Press Ctrl-C to cancel."
 	forceTriggerNotice = "Triggering a fresh dry-run (this starts a billed cluster). Press Ctrl-C to cancel."
@@ -165,13 +167,16 @@ func resolveDryRun(ctx context.Context, d updateDeps, opts dagRunOpts) (id strin
 		}
 	}()
 
+	// Continuous pipelines cannot be dry-run --> we don't serve them
+	continuous, err := d.continuous(signalCtx)
+	if err != nil {
+		return "", "", err
+	}
+	if continuous {
+		return "", "", errContinuous
+	}
+
 	triggerAndPoll := func(notice string) (string, pipelines.UpdateInfoState, error) {
-		// continuous pipeline cannot be dry-run
-		if continuous, err := d.continuous(signalCtx); err != nil {
-			return "", "", err
-		} else if continuous {
-			return "", "", errContinuous
-		}
 		cmdio.LogString(signalCtx, notice)
 		newID, err := d.trigger(signalCtx)
 		if err != nil {
@@ -353,12 +358,36 @@ func fetchNodes(ctx context.Context, c *client.DatabricksClient, headers map[str
 		func(r *listNodesResponse) string { return r.NextPageToken })
 }
 
-// keeps only the dataset nodes, dropping sinks
+// use name if present, otherwise full_name (sinks)
+func displayName(d dagDataset) string {
+	if d.Name != "" {
+		return d.Name
+	}
+	return d.FullName
+}
+
+// flattens a graph node into the dagDataset shape
+func nodeToDataset(n dagNode) (dagDataset, bool) {
+	switch {
+	case n.Dataset != nil:
+		return *n.Dataset, true
+	case n.Sink != nil:
+		fullName := n.Sink.TableName
+		if fullName == "" {
+			fullName = n.Sink.Name
+		}
+		return dagDataset{Ref: n.Sink.Ref, FullName: fullName, DatasetType: sinkNodeType}, true
+	default:
+		return dagDataset{}, false
+	}
+}
+
+// flattens every graph node into the dagDataset shape
 func datasetsFromNodes(nodes []dagNode) []dagDataset {
 	datasets := make([]dagDataset, 0, len(nodes))
 	for _, n := range nodes {
-		if n.Dataset != nil {
-			datasets = append(datasets, *n.Dataset)
+		if d, ok := nodeToDataset(n); ok {
+			datasets = append(datasets, d)
 		}
 	}
 	return datasets

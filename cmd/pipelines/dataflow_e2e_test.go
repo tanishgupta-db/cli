@@ -61,7 +61,7 @@ func sampleGraph() *testserver.DataflowGraph {
 	}
 }
 
-func TestPreviewDatasetsE2EPaginates(t *testing.T) {
+func TestDatasetsE2EPaginates(t *testing.T) {
 	ctx, _ := cmdio.NewTestContextWithStdout(t.Context())
 	server, w := newDataflowServer(t)
 	pipelineID := createDataflowPipeline(ctx, t, w, false)
@@ -78,14 +78,32 @@ func TestPreviewDatasetsE2EPaginates(t *testing.T) {
 	server.Workspace(e2eToken).SetPipelineGraph(pipelineID, &testserver.DataflowGraph{Nodes: nodes})
 
 	cmd, buf := renderCmd(t, flags.OutputJSON)
-	require.NoError(t, runPreviewDatasets(ctx, cmd, w, pipelineID, "key", dagRunOpts{}))
+	require.NoError(t, runDatasets(ctx, cmd, w, pipelineID, "key", dagRunOpts{}))
 
 	var got []dagDataset
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &got))
 	assert.Len(t, got, 60)
 }
 
-func TestPreviewDatasetsE2EFailedDryRunSurfacesDiagnostics(t *testing.T) {
+func TestDatasetsE2ERendersNamesCleanly(t *testing.T) {
+	ctx, _ := cmdio.NewTestContextWithStdout(t.Context())
+	server, w := newDataflowServer(t)
+	pipelineID := createDataflowPipeline(ctx, t, w, false)
+	// real backend shapes: backticked full_name dataset, empty-full_name view, nameless sink
+	server.Workspace(e2eToken).SetPipelineGraph(pipelineID, &testserver.DataflowGraph{
+		Nodes: []testserver.DataflowGraphNode{
+			{Dataset: &testserver.DataflowGraphDataset{DatasetRef: "n1", Name: "main.s.orders", FullName: "`main`.`s`.`orders`", DatasetType: "MATERIALIZED_VIEW"}},
+			{Dataset: &testserver.DataflowGraphDataset{DatasetRef: "n2", Name: "recent", DatasetType: "VIEW"}},
+			{Sink: &testserver.DataflowGraphSink{SinkRef: "s1", TableName: "main.s.archive"}},
+		},
+	})
+
+	cmd, buf := renderCmd(t, flags.OutputText)
+	require.NoError(t, runDatasets(ctx, cmd, w, pipelineID, "key", dagRunOpts{}))
+	assert.Equal(t, "main.s.orders\tMATERIALIZED_VIEW\nrecent\tVIEW\nmain.s.archive\tSINK\n", buf.String())
+}
+
+func TestDatasetsE2EFailedDryRunSurfacesDiagnostics(t *testing.T) {
 	ctx, _ := cmdio.NewTestContextWithStdout(t.Context())
 	server, w := newDataflowServer(t)
 	pipelineID := createDataflowPipeline(ctx, t, w, false)
@@ -109,14 +127,14 @@ func TestPreviewDatasetsE2EFailedDryRunSurfacesDiagnostics(t *testing.T) {
 	})
 
 	cmd, _ := renderCmd(t, flags.OutputText)
-	err := runPreviewDatasets(ctx, cmd, w, pipelineID, "key", dagRunOpts{noDryRun: true})
+	err := runDatasets(ctx, cmd, w, pipelineID, "key", dagRunOpts{noDryRun: true})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "dry-run failed")
 	assert.Contains(t, err.Error(), "missing table")
 	assert.Contains(t, err.Error(), "TABLE_NOT_FOUND")
 }
 
-func TestPreviewDatasetsE2EFailedDryRunSurfacesExceptionDetail(t *testing.T) {
+func TestDatasetsE2EFailedDryRunSurfacesExceptionDetail(t *testing.T) {
 	ctx, _ := cmdio.NewTestContextWithStdout(t.Context())
 	server, w := newDataflowServer(t)
 	pipelineID := createDataflowPipeline(ctx, t, w, false)
@@ -147,23 +165,23 @@ func TestPreviewDatasetsE2EFailedDryRunSurfacesExceptionDetail(t *testing.T) {
 	})
 
 	cmd, _ := renderCmd(t, flags.OutputText)
-	err := runPreviewDatasets(ctx, cmd, w, pipelineID, "key", dagRunOpts{noDryRun: true})
+	err := runDatasets(ctx, cmd, w, pipelineID, "key", dagRunOpts{noDryRun: true})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "UNRESOLVED_COLUMN 42703")
 }
 
-func TestPreviewDatasetsE2EContinuousPipelineErrors(t *testing.T) {
+func TestDatasetsE2EContinuousPipelineErrors(t *testing.T) {
 	ctx, _ := cmdio.NewTestContextWithStdout(t.Context())
 	server, w := newDataflowServer(t)
 	pipelineID := createDataflowPipeline(ctx, t, w, true)
 	server.Workspace(e2eToken).SetPipelineGraph(pipelineID, sampleGraph())
 
 	cmd, _ := renderCmd(t, flags.OutputText)
-	err := runPreviewDatasets(ctx, cmd, w, pipelineID, "key", dagRunOpts{})
+	err := runDatasets(ctx, cmd, w, pipelineID, "key", dagRunOpts{})
 	assert.ErrorIs(t, err, errContinuous)
 }
 
-func TestPreviewDatasetsE2EActiveUpdateErrors(t *testing.T) {
+func TestDatasetsE2EActiveUpdateErrors(t *testing.T) {
 	ctx, _ := cmdio.NewTestContextWithStdout(t.Context())
 	server, w := newDataflowServer(t)
 	pipelineID := createDataflowPipeline(ctx, t, w, false)
@@ -176,12 +194,12 @@ func TestPreviewDatasetsE2EActiveUpdateErrors(t *testing.T) {
 	})
 
 	cmd, _ := renderCmd(t, flags.OutputText)
-	err := runPreviewDatasets(ctx, cmd, w, pipelineID, "key", dagRunOpts{})
+	err := runDatasets(ctx, cmd, w, pipelineID, "key", dagRunOpts{})
 	require.ErrorIs(t, err, errActiveUpdate)
 	assert.Contains(t, err.Error(), "an update is running")
 }
 
-func TestPreviewDatasetsE2ENoDryRunInProgressErrors(t *testing.T) {
+func TestDatasetsE2ENoDryRunInProgressErrors(t *testing.T) {
 	ctx, _ := cmdio.NewTestContextWithStdout(t.Context())
 	server, w := newDataflowServer(t)
 	pipelineID := createDataflowPipeline(ctx, t, w, false)
@@ -196,7 +214,7 @@ func TestPreviewDatasetsE2ENoDryRunInProgressErrors(t *testing.T) {
 	})
 
 	cmd, _ := renderCmd(t, flags.OutputText)
-	err := runPreviewDatasets(ctx, cmd, w, pipelineID, "key", dagRunOpts{noDryRun: true})
+	err := runDatasets(ctx, cmd, w, pipelineID, "key", dagRunOpts{noDryRun: true})
 	require.ErrorIs(t, err, errDryRunInProgress)
 	assert.NotContains(t, err.Error(), "failed")
 }

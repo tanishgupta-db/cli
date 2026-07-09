@@ -1,4 +1,4 @@
 trace $CLI pipelines deploy
 
 title "datasets --force-dry-run always triggers a fresh dry-run (announces the billed cluster)"
-trace $CLI pipelines preview-datasets --force-dry-run
+trace $CLI pipelines datasets --force-dry-run
