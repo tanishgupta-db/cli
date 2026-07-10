@@ -11,6 +11,7 @@ import (
 	"github.com/databricks/cli/cmd/bundle/utils"
 	"github.com/databricks/cli/cmd/root"
 	"github.com/databricks/cli/libs/auth"
+	"github.com/databricks/cli/libs/cmdio"
 	"github.com/databricks/cli/libs/flags"
 	"github.com/databricks/cli/libs/logdiag"
 	"github.com/databricks/databricks-sdk-go"
@@ -123,7 +124,7 @@ func runLineage(ctx context.Context, cmd *cobra.Command, w *databricks.Workspace
 	if err != nil {
 		return err
 	}
-	return renderLineage(cmd, table, upstream, downstream, unresolved)
+	return renderLineage(ctx, cmd, table, upstream, downstream, unresolved)
 }
 
 // resolves the upstream and downstream nodes of table from the node and flow lists
@@ -193,32 +194,27 @@ func resolveRefs(refs map[string]struct{}, refToDataset map[string]dagDataset) [
 	return out
 }
 
-func renderLineage(cmd *cobra.Command, table string, upstream, downstream []dagDataset, unresolved int) error {
+// lineageView is the display projection rendered by lineageTemplate.
+type lineageView struct {
+	Table      string
+	Upstream   []datasetRow
+	Downstream []datasetRow
+	Unresolved int
+}
+
+func renderLineage(ctx context.Context, cmd *cobra.Command, table string, upstream, downstream []dagDataset, unresolved int) error {
 	switch root.OutputType(cmd) {
 	case flags.OutputText:
-		var sb strings.Builder
-		fmt.Fprintf(&sb, "Lineage for %s\n\nUpstream:\n", table)
-		writeDatasetLines(&sb, upstream)
-		sb.WriteString("\nDownstream:\n")
-		writeDatasetLines(&sb, downstream)
-		if unresolved > 0 {
-			fmt.Fprintf(&sb, "\n%d referenced node(s) are not defined in this pipeline (e.g. external sources) and were omitted.\n", unresolved)
+		view := lineageView{
+			Table:      table,
+			Upstream:   datasetRows(upstream),
+			Downstream: datasetRows(downstream),
+			Unresolved: unresolved,
 		}
-		_, err := cmd.OutOrStdout().Write([]byte(sb.String()))
-		return err
+		return cmdio.RenderWithTemplate(ctx, view, "", lineageTemplate)
 	case flags.OutputJSON:
 		return renderJSON(cmd, lineageOutput{Upstream: orEmpty(upstream), Downstream: orEmpty(downstream), UnresolvedRefs: unresolved})
 	default:
 		return fmt.Errorf("unknown output type %s", root.OutputType(cmd))
-	}
-}
-
-func writeDatasetLines(sb *strings.Builder, datasets []dagDataset) {
-	if len(datasets) == 0 {
-		sb.WriteString("  (none)\n")
-		return
-	}
-	for _, d := range datasets {
-		fmt.Fprintf(sb, "  %s\t%s\n", displayName(d), d.DatasetType)
 	}
 }

@@ -223,7 +223,7 @@ func TestDatasetsE2EActiveUpdateErrors(t *testing.T) {
 }
 
 func TestLineageE2EIncludesSink(t *testing.T) {
-	ctx, _ := cmdio.NewTestContextWithStdout(t.Context())
+	ctx, cmd, buf := renderCmd(t, flags.OutputText)
 	server, w := newDataflowServer(t)
 	pipelineID := createDataflowPipeline(ctx, t, w, false)
 	// The dataset carries the real backend shape (clean name, backtick-quoted full_name); the user
@@ -238,14 +238,13 @@ func TestLineageE2EIncludesSink(t *testing.T) {
 		},
 	})
 
-	cmd, buf := renderCmd(t, flags.OutputText)
 	require.NoError(t, runLineage(ctx, cmd, w, pipelineID, "key", "main.s.orders", dagRunOpts{}))
 	out := buf.String()
-	assert.Contains(t, out, "Downstream:\n  main.s.orders_sink\tSINK")
+	assert.Contains(t, out, "Downstream:\n  main.s.orders_sink  SINK")
 }
 
 func TestDatasetsE2ENoDryRunInProgressErrors(t *testing.T) {
-	ctx, _ := cmdio.NewTestContextWithStdout(t.Context())
+	ctx, cmd, _ := renderCmd(t, flags.OutputText)
 	server, w := newDataflowServer(t)
 	pipelineID := createDataflowPipeline(ctx, t, w, false)
 	// The newest validate-only update is still running; --no-dry-run must report it as in-progress,

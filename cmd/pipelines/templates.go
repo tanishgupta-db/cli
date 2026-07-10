@@ -78,6 +78,20 @@ const datasetsTemplate = `{{if .}}Name	Type
 {{end}}{{else}}(none)
 {{end}}`
 
+// for lineage command
+const lineageTemplate = `Lineage for {{.Table}}
+
+Upstream:
+{{if .Upstream}}{{range .Upstream}}  {{.Name}}	{{.Type}}
+{{end}}{{else}}  (none)
+{{end}}
+Downstream:
+{{if .Downstream}}{{range .Downstream}}  {{.Name}}	{{.Type}}
+{{end}}{{else}}  (none)
+{{end}}{{if .Unresolved}}
+{{.Unresolved}} referenced node(s) are not defined in this pipeline (e.g. external sources) and were omitted.
+{{end}}`
+
 // progressEventsTemplate is the template for displaying progress events
 const progressEventsTemplate = `{{- if .ProgressEvents }}
 {{ printf "%-25s %s\n" "Run Phase" "Duration" }}

@@ -140,30 +140,31 @@ func TestRenderLineage(t *testing.T) {
 	down := []dagDataset{{FullName: "main.s.report", DatasetType: "MATERIALIZED_VIEW"}}
 
 	t.Run("text", func(t *testing.T) {
-		cmd, buf := renderCmd(t, flags.OutputText)
-		require.NoError(t, renderLineage(cmd, "main.s.orders", up, down, 0))
-		want := "Lineage for main.s.orders\n\nUpstream:\n  main.s.raw\tSTREAMING_TABLE\n\nDownstream:\n  main.s.report\tMATERIALIZED_VIEW\n"
+		ctx, cmd, buf := renderCmd(t, flags.OutputText)
+		require.NoError(t, renderLineage(ctx, cmd, "main.s.orders", up, down, 0))
+		// The blank line between sections breaks the tabwriter block, so each section aligns its own columns.
+		want := "Lineage for main.s.orders\n\nUpstream:\n  main.s.raw  STREAMING_TABLE\n\nDownstream:\n  main.s.report  MATERIALIZED_VIEW\n"
 		assert.Equal(t, want, buf.String())
 	})
 	t.Run("text empty sides", func(t *testing.T) {
-		cmd, buf := renderCmd(t, flags.OutputText)
-		require.NoError(t, renderLineage(cmd, "main.s.orders", nil, nil, 0))
+		ctx, cmd, buf := renderCmd(t, flags.OutputText)
+		require.NoError(t, renderLineage(ctx, cmd, "main.s.orders", nil, nil, 0))
 		assert.Contains(t, buf.String(), "Upstream:\n  (none)\n")
 		assert.Contains(t, buf.String(), "Downstream:\n  (none)\n")
 	})
 	t.Run("text notes unresolved refs", func(t *testing.T) {
-		cmd, buf := renderCmd(t, flags.OutputText)
-		require.NoError(t, renderLineage(cmd, "main.s.orders", up, nil, 2))
+		ctx, cmd, buf := renderCmd(t, flags.OutputText)
+		require.NoError(t, renderLineage(ctx, cmd, "main.s.orders", up, nil, 2))
 		assert.Contains(t, buf.String(), "2 referenced node(s) are not defined in this pipeline")
 	})
 	t.Run("json includes unresolved refs", func(t *testing.T) {
-		cmd, buf := renderCmd(t, flags.OutputJSON)
-		require.NoError(t, renderLineage(cmd, "main.s.orders", up, nil, 3))
+		ctx, cmd, buf := renderCmd(t, flags.OutputJSON)
+		require.NoError(t, renderLineage(ctx, cmd, "main.s.orders", up, nil, 3))
 		assert.Contains(t, buf.String(), `"unresolved_refs": 3`)
 	})
 	t.Run("json omits zero unresolved refs", func(t *testing.T) {
-		cmd, buf := renderCmd(t, flags.OutputJSON)
-		require.NoError(t, renderLineage(cmd, "main.s.orders", up, nil, 0))
+		ctx, cmd, buf := renderCmd(t, flags.OutputJSON)
+		require.NoError(t, renderLineage(ctx, cmd, "main.s.orders", up, nil, 0))
 		assert.NotContains(t, buf.String(), "unresolved_refs")
 	})
 }

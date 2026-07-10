@@ -13,14 +13,17 @@ Recommendation: This command runs the last deployed version of the code
 If you've made local changes, run 'databricks pipelines deploy' first to ensure they are included.
 
 No readable dry-run found; triggering one (this starts a billed cluster). Press Ctrl-C to cancel.
+Update URL: [DATABRICKS_URL]/#joblist/pipelines/[UUID]/updates/[UUID]
+
+Update ID: [UUID]
 Lineage for main.demo.source
 
 Upstream:
   (none)
 
 Downstream:
-  main.demo.aggregated	MATERIALIZED_VIEW
-  main.demo.filtered	MATERIALIZED_VIEW
+  main.demo.aggregated  MATERIALIZED_VIEW
+  main.demo.filtered    MATERIALIZED_VIEW
 
 === lineage: datasets upstream of a derived dataset
 >>> [CLI] pipelines lineage main.demo.filtered
@@ -31,10 +34,10 @@ If you've made local changes, run 'databricks pipelines deploy' first to ensure 
 Lineage for main.demo.filtered
 
 Upstream:
-  main.demo.source	MATERIALIZED_VIEW
+  main.demo.source  MATERIALIZED_VIEW
 
 Downstream:
-  recent	VIEW
+  recent  VIEW
 
 === lineage as JSON
 >>> [CLI] pipelines lineage main.demo.filtered --output json
