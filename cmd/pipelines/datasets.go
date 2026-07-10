@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/databricks/cli/cmd/bundle/utils"
 	"github.com/databricks/cli/cmd/root"
 	"github.com/databricks/cli/libs/auth"
+	"github.com/databricks/cli/libs/cmdio"
 	"github.com/databricks/cli/libs/flags"
 	"github.com/databricks/cli/libs/logdiag"
 	"github.com/databricks/databricks-sdk-go"
@@ -93,22 +93,27 @@ func runDatasets(ctx context.Context, cmd *cobra.Command, w *databricks.Workspac
 	if err != nil {
 		return fmt.Errorf("fetch datasets for %s: %w", key, err)
 	}
-	return renderDatasets(cmd, datasets)
+	return renderDatasets(ctx, cmd, datasets)
 }
 
-func renderDatasets(cmd *cobra.Command, datasets []dagDataset) error {
+// datasetRow is the display projection of a node: its user-visible name and type.
+type datasetRow struct {
+	Name string
+	Type string
+}
+
+func datasetRows(datasets []dagDataset) []datasetRow {
+	rows := make([]datasetRow, len(datasets))
+	for i, d := range datasets {
+		rows[i] = datasetRow{Name: displayName(d), Type: d.DatasetType}
+	}
+	return rows
+}
+
+func renderDatasets(ctx context.Context, cmd *cobra.Command, datasets []dagDataset) error {
 	switch root.OutputType(cmd) {
 	case flags.OutputText:
-		if len(datasets) == 0 {
-			_, err := cmd.OutOrStdout().Write([]byte("(none)\n"))
-			return err
-		}
-		var sb strings.Builder
-		for _, d := range datasets {
-			fmt.Fprintf(&sb, "%s\t%s\n", displayName(d), d.DatasetType)
-		}
-		_, err := cmd.OutOrStdout().Write([]byte(sb.String()))
-		return err
+		return cmdio.RenderWithTemplate(ctx, datasetRows(datasets), "", datasetsTemplate)
 	case flags.OutputJSON:
 		return renderJSON(cmd, orEmpty(datasets))
 	default:

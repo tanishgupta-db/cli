@@ -13,11 +13,15 @@ Recommendation: This command runs the last deployed version of the code
 If you've made local changes, run 'databricks pipelines deploy' first to ensure they are included.
 
 No readable dry-run found; triggering one (this starts a billed cluster). Press Ctrl-C to cancel.
-main.demo.source	MATERIALIZED_VIEW
-main.demo.filtered	MATERIALIZED_VIEW
-main.demo.aggregated	MATERIALIZED_VIEW
-recent	VIEW
-main.demo.archive	SINK
+Update URL: [DATABRICKS_URL]/#joblist/pipelines/[UUID]/updates/[UUID]
+
+Update ID: [UUID]
+Name                  Type
+main.demo.source      MATERIALIZED_VIEW
+main.demo.filtered    MATERIALIZED_VIEW
+main.demo.aggregated  MATERIALIZED_VIEW
+recent                VIEW
+main.demo.archive     SINK
 
 === datasets with an explicit pipeline KEY (same result)
 >>> [CLI] pipelines datasets my_pipeline
@@ -25,11 +29,12 @@ Recommendation: This command runs the last deployed version of the code
 
 If you've made local changes, run 'databricks pipelines deploy' first to ensure they are included.
 
-main.demo.source	MATERIALIZED_VIEW
-main.demo.filtered	MATERIALIZED_VIEW
-main.demo.aggregated	MATERIALIZED_VIEW
-recent	VIEW
-main.demo.archive	SINK
+Name                  Type
+main.demo.source      MATERIALIZED_VIEW
+main.demo.filtered    MATERIALIZED_VIEW
+main.demo.aggregated  MATERIALIZED_VIEW
+recent                VIEW
+main.demo.archive     SINK
 
 === datasets as JSON
 >>> [CLI] pipelines datasets --output json
@@ -76,8 +81,9 @@ Recommendation: This command runs the last deployed version of the code
 
 If you've made local changes, run 'databricks pipelines deploy' first to ensure they are included.
 
-main.demo.source	MATERIALIZED_VIEW
-main.demo.filtered	MATERIALIZED_VIEW
-main.demo.aggregated	MATERIALIZED_VIEW
-recent	VIEW
-main.demo.archive	SINK
+Name                  Type
+main.demo.source      MATERIALIZED_VIEW
+main.demo.filtered    MATERIALIZED_VIEW
+main.demo.aggregated  MATERIALIZED_VIEW
+recent                VIEW
+main.demo.archive     SINK

@@ -1,6 +1,7 @@
 package pipelines
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"github.com/databricks/cli/libs/testserver"
 	"github.com/databricks/databricks-sdk-go"
 	"github.com/databricks/databricks-sdk-go/service/pipelines"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -62,7 +64,7 @@ func sampleGraph() *testserver.DataflowGraph {
 }
 
 func TestDatasetsE2EPaginates(t *testing.T) {
-	ctx, _ := cmdio.NewTestContextWithStdout(t.Context())
+	ctx, cmd, buf := renderCmd(t, flags.OutputJSON)
 	server, w := newDataflowServer(t)
 	pipelineID := createDataflowPipeline(ctx, t, w, false)
 
@@ -77,7 +79,6 @@ func TestDatasetsE2EPaginates(t *testing.T) {
 	}
 	server.Workspace(e2eToken).SetPipelineGraph(pipelineID, &testserver.DataflowGraph{Nodes: nodes})
 
-	cmd, buf := renderCmd(t, flags.OutputJSON)
 	require.NoError(t, runDatasets(ctx, cmd, w, pipelineID, "key", dagRunOpts{}))
 
 	var got []dagDataset
@@ -86,7 +87,7 @@ func TestDatasetsE2EPaginates(t *testing.T) {
 }
 
 func TestDatasetsE2ERendersNamesCleanly(t *testing.T) {
-	ctx, _ := cmdio.NewTestContextWithStdout(t.Context())
+	ctx, cmd, buf := renderCmd(t, flags.OutputText)
 	server, w := newDataflowServer(t)
 	pipelineID := createDataflowPipeline(ctx, t, w, false)
 	// real backend shapes: backticked full_name dataset, empty-full_name view, nameless sink
@@ -98,13 +99,39 @@ func TestDatasetsE2ERendersNamesCleanly(t *testing.T) {
 		},
 	})
 
-	cmd, buf := renderCmd(t, flags.OutputText)
 	require.NoError(t, runDatasets(ctx, cmd, w, pipelineID, "key", dagRunOpts{}))
-	assert.Equal(t, "main.s.orders\tMATERIALIZED_VIEW\nrecent\tVIEW\nmain.s.archive\tSINK\n", buf.String())
+	assert.Equal(t, "Name            Type\nmain.s.orders   MATERIALIZED_VIEW\nrecent          VIEW\nmain.s.archive  SINK\n", buf.String())
+}
+
+func TestDatasetsE2ETriggeredDryRunStreamsProgress(t *testing.T) {
+	// A triggered dry-run streams the update URL and terminal Update ID to stderr, leaving the
+	// dataset table on stdout.
+	stderr := &bytes.Buffer{}
+	cmd := &cobra.Command{}
+	out := flags.OutputText
+	cmd.Flags().Var(&out, "output", "")
+	stdout := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	ctx := cmdio.InContext(t.Context(), cmdio.NewIO(t.Context(), flags.OutputText, nil, stdout, stderr, "", ""))
+
+	server, w := newDataflowServer(t)
+	pipelineID := createDataflowPipeline(ctx, t, w, false)
+	server.Workspace(e2eToken).SetPipelineGraph(pipelineID, &testserver.DataflowGraph{
+		Nodes: []testserver.DataflowGraphNode{
+			{Dataset: &testserver.DataflowGraphDataset{DatasetRef: "n1", Name: "main.s.orders", DatasetType: "MATERIALIZED_VIEW"}},
+		},
+	})
+
+	require.NoError(t, runDatasets(ctx, cmd, w, pipelineID, "key", dagRunOpts{forceDryRun: true}))
+	progress := stderr.String()
+	assert.Contains(t, progress, "Update URL: ")
+	assert.Contains(t, progress, "/updates/")
+	assert.Contains(t, progress, "Update ID: ")
+	assert.Equal(t, "Name           Type\nmain.s.orders  MATERIALIZED_VIEW\n", stdout.String())
 }
 
 func TestDatasetsE2EFailedDryRunSurfacesDiagnostics(t *testing.T) {
-	ctx, _ := cmdio.NewTestContextWithStdout(t.Context())
+	ctx, cmd, _ := renderCmd(t, flags.OutputText)
 	server, w := newDataflowServer(t)
 	pipelineID := createDataflowPipeline(ctx, t, w, false)
 	ws := server.Workspace(e2eToken)
@@ -126,7 +153,6 @@ func TestDatasetsE2EFailedDryRunSurfacesDiagnostics(t *testing.T) {
 		},
 	})
 
-	cmd, _ := renderCmd(t, flags.OutputText)
 	err := runDatasets(ctx, cmd, w, pipelineID, "key", dagRunOpts{noDryRun: true})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "dry-run failed")
@@ -135,7 +161,7 @@ func TestDatasetsE2EFailedDryRunSurfacesDiagnostics(t *testing.T) {
 }
 
 func TestDatasetsE2EFailedDryRunSurfacesExceptionDetail(t *testing.T) {
-	ctx, _ := cmdio.NewTestContextWithStdout(t.Context())
+	ctx, cmd, _ := renderCmd(t, flags.OutputText)
 	server, w := newDataflowServer(t)
 	pipelineID := createDataflowPipeline(ctx, t, w, false)
 	ws := server.Workspace(e2eToken)
@@ -164,25 +190,23 @@ func TestDatasetsE2EFailedDryRunSurfacesExceptionDetail(t *testing.T) {
 		},
 	})
 
-	cmd, _ := renderCmd(t, flags.OutputText)
 	err := runDatasets(ctx, cmd, w, pipelineID, "key", dagRunOpts{noDryRun: true})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "UNRESOLVED_COLUMN 42703")
 }
 
 func TestDatasetsE2EContinuousPipelineErrors(t *testing.T) {
-	ctx, _ := cmdio.NewTestContextWithStdout(t.Context())
+	ctx, cmd, _ := renderCmd(t, flags.OutputText)
 	server, w := newDataflowServer(t)
 	pipelineID := createDataflowPipeline(ctx, t, w, true)
 	server.Workspace(e2eToken).SetPipelineGraph(pipelineID, sampleGraph())
 
-	cmd, _ := renderCmd(t, flags.OutputText)
 	err := runDatasets(ctx, cmd, w, pipelineID, "key", dagRunOpts{})
 	assert.ErrorIs(t, err, errContinuous)
 }
 
 func TestDatasetsE2EActiveUpdateErrors(t *testing.T) {
-	ctx, _ := cmdio.NewTestContextWithStdout(t.Context())
+	ctx, cmd, _ := renderCmd(t, flags.OutputText)
 	server, w := newDataflowServer(t)
 	pipelineID := createDataflowPipeline(ctx, t, w, false)
 	server.Workspace(e2eToken).SeedPipelineUpdate(&testserver.PipelineUpdate{
@@ -193,14 +217,13 @@ func TestDatasetsE2EActiveUpdateErrors(t *testing.T) {
 		CreationTime: 1,
 	})
 
-	cmd, _ := renderCmd(t, flags.OutputText)
 	err := runDatasets(ctx, cmd, w, pipelineID, "key", dagRunOpts{})
 	require.ErrorIs(t, err, errActiveUpdate)
 	assert.Contains(t, err.Error(), "an update is running")
 }
 
 func TestDatasetsE2ENoDryRunInProgressErrors(t *testing.T) {
-	ctx, _ := cmdio.NewTestContextWithStdout(t.Context())
+	ctx, cmd, _ := renderCmd(t, flags.OutputText)
 	server, w := newDataflowServer(t)
 	pipelineID := createDataflowPipeline(ctx, t, w, false)
 	// The newest validate-only update is still running; --no-dry-run must report it as in-progress,
@@ -213,7 +236,6 @@ func TestDatasetsE2ENoDryRunInProgressErrors(t *testing.T) {
 		CreationTime: 1,
 	})
 
-	cmd, _ := renderCmd(t, flags.OutputText)
 	err := runDatasets(ctx, cmd, w, pipelineID, "key", dagRunOpts{noDryRun: true})
 	require.ErrorIs(t, err, errDryRunInProgress)
 	assert.NotContains(t, err.Error(), "failed")

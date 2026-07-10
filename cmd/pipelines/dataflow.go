@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/databricks/cli/bundle/run/progress"
 	"github.com/databricks/cli/libs/cmdio"
 	"github.com/databricks/cli/libs/log"
 	"github.com/databricks/databricks-sdk-go"
@@ -267,20 +268,33 @@ func newUpdateDeps(w *databricks.WorkspaceClient, pipelineID string) updateDeps 
 			return res.UpdateId, nil
 		},
 		poll: func(ctx context.Context, updateID string) (pipelines.UpdateInfoState, error) {
-			return pollUpdate(ctx, w, pipelineID, updateID)
+			return streamUpdateProgress(ctx, w, pipelineID, updateID)
 		},
 		stop: func(ctx context.Context) { stopUpdate(ctx, w, pipelineID) },
 	}
 }
 
-// polls the update until it reaches a terminal state or ctx ends
-func pollUpdate(ctx context.Context, w *databricks.WorkspaceClient, pipelineID, updateID string) (pipelines.UpdateInfoState, error) {
+// polls the update to a terminal state while streaming its progress events
+// (update URL, then each update_progress/flow_progress line) to stderr
+func streamUpdateProgress(ctx context.Context, w *databricks.WorkspaceClient, pipelineID, updateID string) (pipelines.UpdateInfoState, error) {
+	cmdio.Log(ctx, progress.NewPipelineUpdateUrlEvent(w.Config.Host, updateID, pipelineID))
+	tracker := progress.NewUpdateTracker(pipelineID, updateID, w)
 	for {
+
+		if events, err := tracker.Events(ctx); err != nil {
+			log.Warnf(ctx, "failed to fetch progress events for %s: %v", updateID, err)
+		} else {
+			for i := range events {
+				cmdio.Log(ctx, &events[i])
+			}
+		}
+
 		resp, err := w.Pipelines.GetUpdateByPipelineIdAndUpdateId(ctx, pipelineID, updateID)
 		if err != nil {
 			return "", err
 		}
 		if resp.Update != nil && isTerminal(resp.Update.State) {
+			cmdio.LogString(ctx, "Update ID: "+updateID)
 			return resp.Update.State, nil
 		}
 		select {

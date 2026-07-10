@@ -2,23 +2,28 @@ package pipelines
 
 import (
 	"bytes"
+	"context"
+	"io"
 	"testing"
 
+	"github.com/databricks/cli/libs/cmdio"
 	"github.com/databricks/cli/libs/flags"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// renderCmd builds a command wired with the output flag set to out and stdout captured to buf.
-func renderCmd(t *testing.T, out flags.Output) (*cobra.Command, *bytes.Buffer) {
+// builds a command plus a cmdio context that captures stdout (results) to the returned
+// buffer, mirroring how root wires cmdio to the command in production.
+func renderCmd(t *testing.T, out flags.Output) (context.Context, *cobra.Command, *bytes.Buffer) {
 	t.Helper()
 	cmd := &cobra.Command{}
 	value := out
 	cmd.Flags().Var(&value, "output", "")
 	buf := &bytes.Buffer{}
 	cmd.SetOut(buf)
-	return cmd, buf
+	ctx := cmdio.InContext(t.Context(), cmdio.NewIO(t.Context(), out, nil, buf, io.Discard, "", ""))
+	return ctx, cmd, buf
 }
 
 func TestRenderDatasets(t *testing.T) {
@@ -30,18 +35,18 @@ func TestRenderDatasets(t *testing.T) {
 	}
 
 	t.Run("text", func(t *testing.T) {
-		cmd, buf := renderCmd(t, flags.OutputText)
-		require.NoError(t, renderDatasets(cmd, datasets))
-		assert.Equal(t, "main.s.a\tMATERIALIZED_VIEW\nrecent\tVIEW\nmain.s.archive\tSINK\n", buf.String())
+		ctx, cmd, buf := renderCmd(t, flags.OutputText)
+		require.NoError(t, renderDatasets(ctx, cmd, datasets))
+		assert.Equal(t, "Name            Type\nmain.s.a        MATERIALIZED_VIEW\nrecent          VIEW\nmain.s.archive  SINK\n", buf.String())
 	})
 	t.Run("text empty", func(t *testing.T) {
-		cmd, buf := renderCmd(t, flags.OutputText)
-		require.NoError(t, renderDatasets(cmd, nil))
+		ctx, cmd, buf := renderCmd(t, flags.OutputText)
+		require.NoError(t, renderDatasets(ctx, cmd, nil))
 		assert.Equal(t, "(none)\n", buf.String())
 	})
 	t.Run("json empty renders an array", func(t *testing.T) {
-		cmd, buf := renderCmd(t, flags.OutputJSON)
-		require.NoError(t, renderDatasets(cmd, nil))
+		ctx, cmd, buf := renderCmd(t, flags.OutputJSON)
+		require.NoError(t, renderDatasets(ctx, cmd, nil))
 		assert.Equal(t, "[]\n", buf.String())
 	})
 }
