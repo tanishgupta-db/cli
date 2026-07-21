@@ -222,6 +222,27 @@ func TestDatasetsE2EActiveUpdateErrors(t *testing.T) {
 	assert.Contains(t, err.Error(), "an update is running")
 }
 
+func TestLineageE2EIncludesSink(t *testing.T) {
+	ctx, cmd, buf := renderCmd(t, flags.OutputText)
+	server, w := newDataflowServer(t)
+	pipelineID := createDataflowPipeline(ctx, t, w, false)
+	// The dataset carries the real backend shape (clean name, backtick-quoted full_name); the user
+	// queries by the clean name and the delta sink it feeds must appear downstream, not be dropped.
+	server.Workspace(e2eToken).SetPipelineGraph(pipelineID, &testserver.DataflowGraph{
+		Nodes: []testserver.DataflowGraphNode{
+			{Dataset: &testserver.DataflowGraphDataset{DatasetRef: "n1", Name: "main.s.orders", FullName: "`main`.`s`.`orders`", DatasetType: "MATERIALIZED_VIEW"}},
+			{Sink: &testserver.DataflowGraphSink{SinkRef: "s1", TableName: "main.s.orders_sink"}},
+		},
+		Flows: []testserver.DataflowGraphFlow{
+			{InputNodeRefs: []string{"n1"}, OutputNodeRef: "s1"},
+		},
+	})
+
+	require.NoError(t, runLineage(ctx, cmd, w, pipelineID, "key", "main.s.orders", dagRunOpts{}))
+	out := buf.String()
+	assert.Contains(t, out, "Downstream:\n  main.s.orders_sink  SINK")
+}
+
 func TestDatasetsE2ENoDryRunInProgressErrors(t *testing.T) {
 	ctx, cmd, _ := renderCmd(t, flags.OutputText)
 	server, w := newDataflowServer(t)

@@ -76,6 +76,17 @@ type listNodesResponse struct {
 	NextPageToken string    `json:"next_page_token"`
 }
 
+// dagFlow is an edge by node ref: each input node feeds the output node.
+type dagFlow struct {
+	InputNodeRefs []string `json:"input_node_refs"`
+	OutputNodeRef string   `json:"output_node_ref"`
+}
+
+type listFlowsResponse struct {
+	Flows         []dagFlow `json:"flows"`
+	NextPageToken string    `json:"next_page_token"`
+}
+
 // node a diagnostic relates to; exactly one name field is set
 type dagDiagnosticNode struct {
 	DatasetName string `json:"dataset_name"`
@@ -405,6 +416,12 @@ func datasetsFromNodes(nodes []dagNode) []dagDataset {
 		}
 	}
 	return datasets
+}
+
+func fetchFlows(ctx context.Context, c *client.DatabricksClient, headers map[string]string, pipelineID, updateID string) ([]dagFlow, error) {
+	return fetchAllPages(ctx, c, headers, graphPath(pipelineID, "flows"), updateID, flowsPageSize,
+		func(r *listFlowsResponse) []dagFlow { return r.Flows },
+		func(r *listFlowsResponse) string { return r.NextPageToken })
 }
 
 func fetchDiagnostics(ctx context.Context, c *client.DatabricksClient, headers map[string]string, pipelineID, updateID string) ([]dagDiagnostic, error) {
