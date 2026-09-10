@@ -1,0 +1,10 @@
+bundle:
+  name: test-pipeline-datasets-no-dry-run-missing
+
+resources:
+  pipelines:
+    my_pipeline:
+      name: test-pipeline-datasets-no-dry-run-missing
+      libraries:
+        - file:
+            path: pipeline_file.py

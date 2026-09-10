@@ -72,6 +72,12 @@ Pipeline configurations for this update:
 {{- end }}
 `
 
+// for datasets command
+const datasetsTemplate = `{{if .}}Name	Type
+{{range .}}{{.Name}}	{{.Type}}
+{{end}}{{else}}(none)
+{{end}}`
+
 // progressEventsTemplate is the template for displaying progress events
 const progressEventsTemplate = `{{- if .ProgressEvents }}
 {{ printf "%-25s %s\n" "Run Phase" "Duration" }}

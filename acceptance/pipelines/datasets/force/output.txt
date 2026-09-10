@@ -1,0 +1,24 @@
+
+>>> [CLI] pipelines deploy
+Uploading bundle files to /Workspace/Users/[USERNAME]/.bundle/test-pipeline-datasets-force/default/files...
+Deploying resources...
+Updating deployment state...
+Deployment complete!
+View your pipeline my_pipeline here: [DATABRICKS_URL]/pipelines/[UUID]?w=[NUMID]
+
+=== datasets --force-dry-run always triggers a fresh dry-run (announces the billed cluster)
+>>> [CLI] pipelines datasets --force-dry-run
+Recommendation: This command runs the last deployed version of the code
+
+If you've made local changes, run 'databricks pipelines deploy' first to ensure they are included.
+
+Triggering a fresh dry-run (this starts a billed cluster). Press Ctrl-C to cancel.
+Update URL: [DATABRICKS_URL]/#joblist/pipelines/[UUID]/updates/[UUID]
+
+Update ID: [UUID]
+Name                  Type
+main.demo.source      MATERIALIZED_VIEW
+main.demo.filtered    MATERIALIZED_VIEW
+main.demo.aggregated  MATERIALIZED_VIEW
+recent                VIEW
+main.demo.archive     SINK

@@ -1,0 +1,14 @@
+
+>>> [CLI] pipelines deploy
+Uploading bundle files to /Workspace/Users/[USERNAME]/.bundle/test-pipeline-datasets-no-dry-run-missing/default/files...
+Deploying resources...
+Updating deployment state...
+Deployment complete!
+View your pipeline my_pipeline here: [DATABRICKS_URL]/pipelines/[UUID]?w=[NUMID]
+
+=== datasets --no-dry-run with no prior dry-run reports the graph as unavailable
+Recommendation: This command runs the last deployed version of the code
+
+If you've made local changes, run 'databricks pipelines deploy' first to ensure they are included.
+
+Error: datasets for my_pipeline: no dry-run found; re-run without --no-dry-run to trigger one
